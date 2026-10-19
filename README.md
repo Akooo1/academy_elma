@@ -4,14 +4,15 @@ Internal learning platform for the Single Window (Yagona oyna) rollout on Elma36
 
 The design, schema, endpoints and phases are in [docs/PLAN.md](docs/PLAN.md).
 
-**Status: Phase 5 (AI drafting).** Done so far:
+**Status: Phase 6 (learner web UI).** Done so far:
 - Phase 1: schema, auth, CSV user import, seed, worker and containers.
 - Phase 2: modules and lessons, Elma365 releases (draft → publish), video upload with HLS transcoding, subtitles and PDFs, and the server-side 90 % watch rule.
 - Phase 3: question bank with approval, test publishing (pool ≥ 3×N), test assembly, timed attempts, grading, attempt limit and cooldown, remediation fragments, item statistics and admin attempt reset.
 - Phase 4: certificates (module and operator) with PDF and QR verification, per-module recertification after a release, the certification-status API, waves, readiness reports with CSV, the access list and the learner home page.
 - Phase 5: AI drafting of questions from a lesson's transcript, with every draft checked on the server and reviewed by a methodologist.
+- Phase 6: the learner web app in Uzbek (default) and Russian: home, courses, lessons with the video player, tests, results with remediation, certificates, FAQ and the public verification page.
 
-The web UI arrives in Phases 6–7. Until then nginx serves a placeholder page and the API lives under `/api/v1`.
+The admin, methodologist and branch-head screens arrive in Phase 7. Until then they use the API under `/api/v1`.
 
 ## Run (machine with internet)
 
@@ -22,7 +23,7 @@ make seed                   # course, regions, job roles, the 7 modules
 make admin ID=ADM-0001 NAME="Full Name"   # prints a one-time password
 ```
 
-Then log in as that admin (`POST /api/v1/auth/login`). A first login with the one-time password has to change it before anything else works.
+Learners open `http://<server>/` and sign in with their employee ID. A first login with the one-time password has to change it before anything else works. The admin uses the API (`POST /api/v1/auth/login`) until Phase 7.
 
 Demo data, never for production:
 - `make demo-seed PASSWORD=...` adds 25 synthetic branches, 245 synthetic employees and one demo wave. Every account shares that password.
@@ -30,6 +31,22 @@ Demo data, never for production:
   - It also writes 45 approved demo questions per module (3×N for N = 15) and publishes both tests, with the cooldown set to 0.
   - The questions are simple arithmetic, so whoever runs the demo can pass or fail on purpose.
   - It creates the learner `DEMO-0001` (one-time password printed once), assigned exactly Core + Farovon. That covers the whole path: fail → re-watch → pass Core → Farovon → both module certificates and the operator certificate → PDF and verification.
+
+## Learner web app
+
+Served by nginx from the same origin as the API. Every string is in `frontend/src/i18n/uz.json` and `ru.json`; the language switch (UZ/RU) is remembered per user.
+
+- **Home:** wave, deadline, x/y modules certified, the learning path (Core first; product modules locked until Core is certified), the lesson to resume, certificate status, FAQ.
+- **Lesson:** HLS video with quality choice, uz/ru subtitles, transcript and the reference PDF.
+  - On a first viewing the player blocks seeking past the furthest point reached and keeps 1× speed. The page says the lesson counts at 90 %; after completion both are free.
+  - It reports what was actually played every 15 s, on pause and when the page is left. The server decides what counts (see the 90 % rule in the plan).
+- **Test:** question navigator, a countdown driven by the server's clock, answers saved as they are given (the newest change wins; retried if the network drops), "come back later" flags. At 0:00 the test is submitted with the saved answers.
+- **Result:** score, attempts left, the retake countdown, the lesson fragments to re-watch (each opens the lesson at the fragment) and the attempt history. Correct answers are never shown.
+- **Certificates:** PDF download and a link to the verification page. The QR code on the PDF opens the same page.
+
+Videos are H.264/AAC, which Chrome, Edge, Yandex Browser and Firefox on Windows all decode.
+
+**Frontend development:** with the stack running (`make up`), `cd frontend && npm ci && npm run dev` serves the app on port 5173, proxying `/api` and `/media` to nginx on port 80.
 
 ## Content workflow
 
@@ -89,7 +106,7 @@ Set `CERT_SIGNATORY_NAME` to print the signatory's name on certificates.
 
 ## Offline server
 
-`docker compose up` cannot build images without internet (pip needs the network), so the bank server gets pre-built images:
+`docker compose up` cannot build images without internet (pip and npm need the network), so the bank server gets pre-built images:
 
 ```sh
 # on a machine with internet
@@ -100,7 +117,8 @@ APP_VERSION=1.0 docker compose up -d
 ```
 
 The platform makes no outbound calls at runtime:
-- nginx sends `Content-Security-Policy: default-src 'self'`.
+- nginx sends `Content-Security-Policy: default-src 'self'`. The web app bundles its fonts and scripts and has no inline script.
+- The `academy-web` image holds only nginx and the built app; Node.js is used only while building it.
 - The API's Swagger page (which loads from a CDN) only exists with `APP_ENV=dev`.
 
 ## Users and branches
@@ -120,6 +138,11 @@ make test     # pytest inside the api image, against a throwaway academy_test da
 ```
 
 Without Docker, run from `backend/` with `TEST_DATABASE_URL=postgresql+psycopg://USER@HOST:5432/academy_test pytest`. The suite refuses to run on a database whose name doesn't end in `_test`.
+
+The web app is checked whenever it is built (`cd frontend && npm run build`, and inside the `academy-web` image build):
+- `tsc` type check;
+- `npm run check:i18n`: uz and ru have the same keys and placeholders, every key the code uses exists, and Uzbek text uses ʻ and ʼ rather than apostrophes;
+- `npm test`: unit tests of the played-range tracker behind the heartbeats and of the Tashkent-time formatting (Node's built-in runner, no extra packages).
 
 ## Backup
 

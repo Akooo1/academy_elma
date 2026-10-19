@@ -1,6 +1,6 @@
 # Yagona oyna Akademiyasi: Phase 0 plan
 
-Status: **plan only, nothing implemented.**
+Status: **Phases 1–6 built.** "As built" notes record where the implementation settled details this plan left open.
 Items marked **[DECIDE]** need your answer before Phase 1. Items marked **[DEFAULT]** are what I will do unless you object.
 Mockup numbers refer to the 11 reference screens (1 · Bosh sahifa … 11 · Elma365 relizlari).
 
@@ -146,8 +146,10 @@ academy_elma/
 │   └── tests/                # pytest against real PostgreSQL 16
 ├── frontend/
 │   ├── package.json · vite.config.ts · tsconfig.json · index.html
+│   ├── scripts/check-i18n.mjs  # uz/ru key and placeholder parity, used keys, ʻ ʼ (runs on every build)
+│   ├── tests/                # node:test unit tests (range tracker, Tashkent dates)
 │   └── src/
-│       ├── main.tsx · routes.tsx
+│       ├── main.tsx · App.tsx (routes)
 │       ├── api/              # fetch wrapper + typed endpoint functions
 │       ├── i18n/             # setup, uz.json (default), ru.json
 │       ├── layouts/          # LearnerLayout (top nav), AdminLayout (sidebar), TestLayout (focused)
@@ -567,6 +569,17 @@ Every report endpoint also accepts `?format=csv`.
 | `/admin/releases` | timeline, changed lessons, impact, checklist, publish | A | 11 |
 
 Layouts target 1366×768 and up, with click targets of at least 44 px and the colour tokens taken from the mockups.
+
+**As built (Phase 6, learner side):**
+- All learner routes above exist except `/reports` (branch head), which comes with Phase 7. The test page has its own focused top bar instead of a separate layout file.
+- **Player:** hls.js light build (no subtitle/DRM code; Safari plays HLS natively), loaded only on lesson pages. Own controls: play, −10 s, time, Sub UZ / Sub RU, speed, quality (Auto + renditions), full screen. Captions and the transcript come from the `<track>` cues.
+  - First viewing: seeking past the furthest point reached (+5 s, as on the server) snaps back with a message, and the speed stays 1×.
+  - Heartbeats: one baseline on open, then every 15 s while playing, and on pause, end, tab hidden and leaving the page (`keepalive`). One request at a time; ranges from a failed request go out with the next one. A `lesson.version_changed` answer reloads the lesson.
+  - It resumes at the last position. `?t=` (from the result page) opens a remediation fragment, which is also marked on the seek bar.
+- **Test:** the countdown uses the offset between `server_now` and the browser clock. Answers are saved per question as they change (newest change wins, retried while offline); at 0:00 the test is submitted with what was saved.
+- **Result:** attempts left, cooldown and the retake button appear only on the module's latest attempt, not on older results.
+- **i18n:** Uzbek (default) and Russian JSON files, Russian plural forms, Uzbek ʻ (U+02BB) and ʼ (U+02BC). The language follows the user's `preferred_language` and is saved on change.
+- No dependencies beyond §8. Unit tests use Node's built-in runner; the browser walkthrough was run with a Playwright outside the repo.
 
 ---
 
