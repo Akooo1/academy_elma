@@ -4,9 +4,10 @@ Internal learning platform for the Single Window (Yagona oyna) rollout on Elma36
 
 The design, schema, endpoints and phases are in [docs/PLAN.md](docs/PLAN.md).
 
-**Status: Phase 2 (content).** Done so far:
+**Status: Phase 3 (assessment).** Done so far:
 - Phase 1: schema, auth, CSV user import, seed, worker and containers.
 - Phase 2: modules and lessons, Elma365 releases (draft → publish), video upload with HLS transcoding, subtitles and PDFs, and the server-side 90 % watch rule.
+- Phase 3: question bank with approval, test publishing (pool ≥ 3×N), test assembly, timed attempts, grading, attempt limit and cooldown, remediation fragments, item statistics and admin attempt reset.
 
 The web UI arrives in Phases 6–7. Until then nginx serves a placeholder page and the API lives under `/api/v1`.
 
@@ -24,6 +25,8 @@ Then log in as that admin (`POST /api/v1/auth/login`). A first login with the on
 Demo data, never for production:
 - `make demo-seed PASSWORD=...` adds 25 synthetic branches, 245 synthetic employees and one demo wave. Every account shares that password.
 - `docker compose exec api python -m app.cli seed --demo` generates five short test-pattern lessons for Core and Farovon (with synthetic uz/ru subtitles), transcodes them and publishes them as release 2026.11. An admin must exist first.
+  - It also writes 45 approved demo questions per module (3×N for N = 15) and publishes both tests, with the cooldown set to 0.
+  - The questions are simple arithmetic, so whoever runs the demo can pass or fail on purpose.
 
 ## Content workflow
 
@@ -36,6 +39,25 @@ Content only reaches learners through an Elma365 release:
 5. Publish. The checklist blocks publishing until every lesson has a ready video and both subtitle files.
 
 Subtitle and PDF fixes on live lessons don't need a release. Replacing a live video always does.
+
+On publish, questions about a replaced video are retired, and open remediation on it is closed. The checklist also blocks publishing while:
+- draft questions on a changed lesson are still waiting for review;
+- a module with a published test would end up with fewer than 3×N approved questions.
+
+## Assessment
+
+Question bank (methodologist or admin, under `/api/v1/admin`):
+- Questions are written against a lesson and a moment in its video (`video_ts_s`). A question starts as a draft. Approving it needs both languages, both explanations and, for screenshot questions, the image.
+- Once a question is approved, its wording can still be fixed, but its answer key cannot change. To change the key, retire the question and duplicate it.
+- `POST /modules/{id}/test/publish` is refused while the pool (approved questions on live lessons) holds fewer than 3×N.
+
+Learners (under `/api/v1/me`):
+- `GET /modules/{id}` returns `test.status`: whether the learner can start, and every reason they can't (lessons, prerequisite, attempts used, cooldown end, remediation x/y).
+- `POST /modules/{id}/attempts` starts an attempt, or resumes the open one. The test has N questions, balanced across difficulty 1–3, with options shuffled (screenshot options stay in A–D order).
+- Answers autosave per question (`PUT /attempts/{id}/answers/{position}`) and are accepted until 30 s after the deadline.
+- `POST /attempts/{id}/submit` returns the score.
+- On a fail, the result lists the video fragments to re-watch. Correct answers and explanations are never sent.
+- The next attempt needs both the cooldown and every fragment watched. An admin can grant a fresh cycle with a mandatory reason (`POST /api/v1/admin/users/{id}/reset-attempts`).
 
 ## Offline server
 

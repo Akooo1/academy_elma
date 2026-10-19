@@ -1,9 +1,10 @@
 """Elma365 releases: the only way content changes reach learners.
 
 A draft release collects new lessons and new versions of changed lessons.
-Publishing makes them live in one transaction. Phase 2 covers the content side
-(lesson versions, module releases). Phase 4 adds the recertification effects on
-certificates, and Phase 3 the question-bank checks.
+Publishing makes them live in one transaction: the new versions go live, questions
+about the replaced videos are retired, open remediation on them is closed, and a
+module with a published test keeps at least 3 x N questions in its pool. Phase 4
+adds the recertification effects on certificates.
 """
 
 from __future__ import annotations
@@ -16,9 +17,9 @@ from sqlalchemy.orm import Session, selectinload
 
 from app import clock
 from app.errors import AppError
-from app.models import ElmaRelease, Lesson, LessonVersion, Module
-from app.models.enums import LessonVersionStatus, ReleaseStatus, VideoStatus
-from app.services import audit, content, media, vtt
+from app.models import ElmaRelease, Lesson, LessonVersion, Module, Question
+from app.models.enums import LessonVersionStatus, QuestionStatus, ReleaseStatus, VideoStatus
+from app.services import audit, content, media, questions, remediation, vtt
 
 CODE_RE = re.compile(r"^[0-9A-Za-z][0-9A-Za-z._-]{0,31}$")
 # Subtitles may run a moment past the last frame.
@@ -161,13 +162,51 @@ def version_problems(version: LessonVersion) -> list[str]:
     return problems
 
 
+def lesson_problems(db: Session, versions: list[LessonVersion]) -> dict[int, list[str]]:
+    """Problems per draft version id, including questions nobody has reviewed yet."""
+    pending = set(
+        db.scalars(
+            select(Question.lesson_version_id)
+            .where(
+                Question.lesson_version_id.in_([v.id for v in versions] or [0]),
+                Question.status == QuestionStatus.draft,
+            )
+            .distinct()
+        )
+    )
+    return {
+        v.id: version_problems(v) + (["questions_pending"] if v.id in pending else [])
+        for v in versions
+    }
+
+
+def module_problems(
+    db: Session, release: ElmaRelease, versions: list[LessonVersion]
+) -> list[dict[str, Any]]:
+    """A published test must still have a 3 x N pool once the release is live."""
+    changed = [v.lesson_id for v in versions]
+    module_ids = {v.lesson.module_id for v in versions}
+    out = []
+    for module in db.scalars(
+        select(Module)
+        .where(Module.id.in_(module_ids or [0]), Module.test_published_at.is_not(None))
+        .order_by(Module.sort, Module.id)
+    ):
+        have = questions.pool_after_release(db, module.id, release.id, changed)
+        need = questions.POOL_FACTOR * module.test_question_count
+        if have < need:
+            params = {"have": have, "need": need}
+            out.append({"module_id": module.id, "code": "pool_too_small", "params": params})
+    return out
+
+
 def checklist(db: Session, release: ElmaRelease) -> list[dict[str, Any]]:
     versions = draft_versions(db, release)
     if not versions:
         return [{"lesson_id": None, "code": "release_empty"}]
-    return [
-        {"lesson_id": v.lesson_id, "code": code} for v in versions for code in version_problems(v)
-    ]
+    by_version = lesson_problems(db, versions)
+    lessons = [{"lesson_id": v.lesson_id, "code": c} for v in versions for c in by_version[v.id]]
+    return lessons + module_problems(db, release, versions)
 
 
 def publish(db: Session, release_id: int, actor_id: int) -> ElmaRelease:
@@ -183,6 +222,14 @@ def publish(db: Session, release_id: int, actor_id: int) -> ElmaRelease:
         raise AppError(409, "release.not_ready", {"problems": problems})
 
     lesson_ids = [v.lesson_id for v in draft_versions(db, release)]
+    replaced = list(
+        db.scalars(
+            select(LessonVersion.id).where(
+                LessonVersion.lesson_id.in_(lesson_ids),
+                LessonVersion.status == LessonVersionStatus.published,
+            )
+        )
+    )
     now = clock.utcnow()
     # Retire the old live versions first: one published version per lesson is a DB rule.
     db.execute(
@@ -207,6 +254,9 @@ def publish(db: Session, release_id: int, actor_id: int) -> ElmaRelease:
     db.execute(
         update(Module).where(Module.id.in_(module_ids)).values(current_release_id=release.id)
     )
+    # Questions about the old videos describe old screens; their fragments no longer exist.
+    retired = questions.retire_for_superseded_versions(db, replaced)
+    remediation.close_for_superseded_versions(db, replaced)
     release.status = ReleaseStatus.published
     release.published_at = now
     release.published_by = actor_id
@@ -216,7 +266,7 @@ def publish(db: Session, release_id: int, actor_id: int) -> ElmaRelease:
         actor_id=actor_id,
         entity="release",
         entity_id=release.id,
-        data={"lessons": len(lesson_ids), "module_ids": module_ids},
+        data={"lessons": len(lesson_ids), "module_ids": module_ids, "questions_retired": retired},
     )
     db.flush()
     db.expire_all()

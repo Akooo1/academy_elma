@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
+from app import clock
 from app.auth.deps import current_user
 from app.db import get_db
 from app.errors import AppError, not_found
@@ -20,6 +21,7 @@ from app.models import (
 )
 from app.models.enums import LessonVersionStatus, ModuleType
 from app.schemas.learner import (
+    FragmentOut,
     HeartbeatIn,
     HeartbeatOut,
     LearnerLesson,
@@ -27,9 +29,11 @@ from app.schemas.learner import (
     LearnerModuleDetail,
     PlayerOut,
     ProgressOut,
+    ReasonOut,
     TestInfo,
+    TestStatus,
 )
-from app.services import access, content, media, progress
+from app.services import access, attempts, content, media, progress, remediation
 
 router = APIRouter(prefix="/me", tags=["learner"])
 
@@ -135,8 +139,28 @@ def my_module(module_id: int, user: AppUser = Depends(current_user), db: Session
             max_attempts=module.test_max_attempts,
             published=module.test_published_at is not None,
             lessons_complete=base.lessons_completed == base.lessons_total,
+            status=_test_status(db, user, module),
         )
     return LearnerModuleDetail(**base.model_dump(), lessons=_lesson_items(rows), test=test)
+
+
+def _test_status(db: Session, user: AppUser, module: Module) -> TestStatus:
+    now = clock.utcnow()
+    if attempts.expire_overdue_for(db, user.id, module.id, now):
+        db.commit()  # an abandoned attempt is graded before anything is decided
+    elig = attempts.eligibility(db, user, module, now)
+    last = elig.last_attempt
+    return TestStatus(
+        can_start=elig.can_start,
+        reasons=[ReasonOut(code=r.code, params=r.params) for r in elig.reasons],
+        attempts_used=elig.attempts_used,
+        attempts_max=elig.attempts_max,
+        cooldown_until=elig.cooldown_until,
+        open_attempt_id=elig.open_attempt_id,
+        last_attempt_id=last.id if last else None,
+        last_score_pct=last.score_pct if last else None,
+        last_passed=last.passed if last else None,
+    )
 
 
 @router.get("/faq", response_model=list[LearnerLesson])
@@ -192,6 +216,19 @@ def open_lesson(
     )
     prog = _progress_out(record, duration) if tracking else None
     completed = bool(prog and prog.completed)
+    fragments = []
+    failed = attempts.open_remediation_attempt(db, user.id, module.id) if tracking else None
+    if failed is not None:
+        fragments = [
+            FragmentOut(
+                span_start_s=i.span_start_s,
+                span_end_s=i.span_end_s,
+                watched_pct=int(remediation.watched_ratio(i) * 100),
+                satisfied=i.satisfied_at is not None,
+            )
+            for i in remediation.items_for(db, failed.id)
+            if i.lesson_version_id == version.id
+        ]
     siblings = [lsn.id for lsn, _ in content.published_lessons(db, module.id)]
     index = siblings.index(lesson.id)
     pdf = (
@@ -217,6 +254,7 @@ def open_lesson(
         speed_change_allowed=not tracking or completed,
         prev_lesson_id=siblings[index - 1] if index > 0 else None,
         next_lesson_id=siblings[index + 1] if index + 1 < len(siblings) else None,
+        remediation=fragments,
     )
 
 
@@ -233,7 +271,7 @@ def heartbeat(
     if body.version_id != version.id:  # a release replaced the video meanwhile
         raise AppError(409, "lesson.version_changed", {"current_version_id": version.id})
     duration = content.duration_of(version) or 0.0
-    record, _ = progress.record_heartbeat(
+    record, accepted = progress.record_heartbeat(
         db,
         user_id=user.id,
         lesson_version_id=version.id,
@@ -241,6 +279,7 @@ def heartbeat(
         ranges=body.ranges,
         position_s=body.position_s,
     )
+    remediation.apply_heartbeat(db, user.id, version.id, accepted)
     db.commit()
     return HeartbeatOut(**_progress_out(record, duration).model_dump(), duration_s=duration)
 

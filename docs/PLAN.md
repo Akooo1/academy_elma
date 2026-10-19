@@ -316,6 +316,7 @@ The test opens when every *current* published lesson version of the module is co
 - Rejecting a draft sets status `retired` with reason `rejected`, so AI acceptance rates stay visible.
 - Scoring is all-or-nothing per question [DEFAULT]: multiple choice needs the exact set, ordering needs the exact order.
 - AI produces single, multiple and ordering questions only. Screenshot questions are created manually.
+- A lesson that never went live can still be deleted, or unmarked from a release, while its only questions are rejected ones: they were never served, so they go with it. Draft or approved questions block deletion.
 
 **R6 Test assembly and attempts.**
 - **Pool:** approved questions of the module that are linked to a *published* lesson version. "Publish test" is blocked while the pool is under 3×N, and the same check runs at release publish.
@@ -328,7 +329,11 @@ The test opens when every *current* published lesson version of the module is co
 - **Snapshot:** settings are copied onto the attempt when it starts.
 - **Timer:** the server holds `expires_at`. Answers are autosaved per question and accepted until `expires_at + 30 s` (to allow for network latency). Unanswered questions count as wrong. The worker finalizes abandoned attempts.
 - **Attempt cycle:** attempts are counted per cycle. A cycle starts at the learner's latest certificate for that module or the latest attempt reset, whichever is later.
+  - A pass in the current cycle blocks further attempts.
+  - So does a certificate with no recertification pending: once Phase 4 issues the certificate, the new cycle opens only when a release sets `recert_due_at`.
 - **Eligibility:** the check returns *all* blocking reasons (prerequisite, lessons, not published, attempts used, cooldown until T, remediation x/y), so the UI can show both conditions the way mockup 4 does.
+- **No answer key in learner payloads:** learners see options by display position and send their answers the same way. The server maps positions to option ids. Option ids are never sent, because they follow the authored order, which is the answer to an ordering question.
+- **Item statistics:** each graded attempt adds one to every question it served, and adds a correct to each question answered right. Expired and reset attempts count too, with unanswered questions counted as wrong.
 
 **R7 Remediation.**
 - On a fail, each missed question (wrong or unanswered) points to its linked lesson, and one item is created per lesson, with a span per D1.
@@ -361,7 +366,11 @@ By construction, certificates of other modules are not touched. Recertification 
 - **Replacing a video** always goes through a release.
 - **Deleting a lesson** is only possible before its first publish [DEFAULT].
 
-> Sequencing note: content can't go live without a release, so the *minimal* release flow (create draft → publish lessons) moves into Phase 2. The checklist, impact preview and recertification effects stay in Phase 4.
+> Sequencing note: content can't go live without a release, so the *minimal* release flow (create draft → publish lessons) moves into Phase 2. Phase 3 adds the question-bank parts:
+> - the checklist items "no pending drafts on changed lessons" and "pool ≥ 3×N";
+> - steps 5 and 6 above.
+>
+> The impact preview and the recertification effects stay in Phase 4.
 
 **R10 Assignments.**
 - A wave has a name (uz/ru), three dates, a list of branches and a role × module matrix.

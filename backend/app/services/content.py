@@ -9,7 +9,7 @@ from sqlalchemy import exists, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models import Lesson, LessonVersion, Question, VideoAsset
-from app.models.enums import LessonVersionStatus
+from app.models.enums import LessonVersionStatus, QuestionStatus
 from app.services import media
 
 FILE_COLUMNS = ("vtt_uz_path", "vtt_ru_path", "pdf_uz_path", "pdf_ru_path")
@@ -61,10 +61,24 @@ def duration_of(version: LessonVersion) -> float | None:
 
 
 def has_questions(db: Session, version_ids: Iterable[int]) -> bool:
+    """Questions still in play (draft or approved) on these versions."""
     ids = list(version_ids)
     return bool(ids) and bool(
-        db.scalar(select(exists().where(Question.lesson_version_id.in_(ids))))
+        db.scalar(
+            select(
+                exists().where(
+                    Question.lesson_version_id.in_(ids), Question.status != QuestionStatus.retired
+                )
+            )
+        )
     )
+
+
+def drop_unreferenced_images(db: Session, paths: Iterable[str | None]) -> None:
+    """Question screenshots are shared by duplicates: delete a file once nothing uses it."""
+    for path in {p for p in paths if p}:
+        if not db.scalar(select(exists().where(Question.image_path == path))):
+            media.delete_rel(path)
 
 
 def drop_unreferenced_files(db: Session, paths: Iterable[str | None]) -> None:
@@ -88,9 +102,24 @@ def drop_asset_if_unreferenced(db: Session, asset_id: uuid.UUID | None) -> None:
 
 
 def delete_version(db: Session, version: LessonVersion) -> None:
+    """Only for a version that never went live, so its questions were never served.
+
+    Callers refuse while draft or approved questions exist; rejected ones go with it.
+    """
     paths = [getattr(version, c) for c in FILE_COLUMNS]
     asset_id = version.video_asset_id
+    rejected = list(
+        db.scalars(
+            select(Question).where(
+                Question.lesson_version_id == version.id, Question.status == QuestionStatus.retired
+            )
+        )
+    )
+    for q in rejected:
+        db.delete(q)
+    db.flush()  # no ORM relationship links the two tables, so order the deletes by hand
     db.delete(version)
     db.flush()
     drop_unreferenced_files(db, paths)
+    drop_unreferenced_images(db, [q.image_path for q in rejected])
     drop_asset_if_unreferenced(db, asset_id)

@@ -2,8 +2,9 @@
 
   seed                         reference data (course, regions, job roles, 7 modules)
   seed --synthetic --password  + synthetic branches, ~245 users and a demo wave (demo only)
-  seed --demo                  + generated demo lessons for Core and Farovon (needs ffmpeg
-                                 and an existing admin; demo only)
+  seed --demo                  + generated demo lessons for Core and Farovon with approved
+                                 demo questions and published tests (needs ffmpeg and an
+                                 existing admin; demo only)
   create-admin                 bootstrap an admin or methodologist (prints a temp password)
   import-branches FILE         upsert branches from CSV: code, name_uz, name_ru, region_code
 """
@@ -38,8 +39,8 @@ from app.models import (
     WaveBranch,
     WaveModuleRole,
 )
-from app.models.enums import AccessRole, Language, ModuleType, ReleaseStatus
-from app.services import audit, csvio, media, releases
+from app.models.enums import AccessRole, Language, ModuleType, QuestionType, ReleaseStatus
+from app.services import audit, content, csvio, media, questions, releases
 from app.services.users import (
     EMPLOYEE_ID_RE,
     access_role_for,
@@ -251,7 +252,74 @@ def seed_demo_content(db: Session, actor_id: int, seconds: int | None = None) ->
             transcode_asset(db, asset)
             created += 1
     releases.publish(db, release.id, actor_id)
-    return {"lessons": created}
+    return {"lessons": created, "questions": seed_demo_questions(db, actor_id)}
+
+
+# Single, single, multiple, ordering: the mix of question types in the demo bank.
+_DEMO_TYPES = (
+    QuestionType.single, QuestionType.single, QuestionType.multiple, QuestionType.ordering,
+)  # fmt: skip
+
+
+def seed_demo_questions(db: Session, actor_id: int) -> int:
+    """3 x N approved arithmetic questions per demo module, then publish the test.
+
+    Arithmetic, so whoever runs the demo can pass or fail on purpose. Cooldown is set
+    to 0 so fail → re-watch → pass fits in one sitting.
+    """
+    rng = random.Random(2026)
+    created = 0
+    for code in seed_data.DEMO_LESSONS:
+        module = db.scalar(select(Module).where(Module.code == code))
+        live = content.published_lessons(db, module.id)
+        for i in range(questions.POOL_FACTOR * module.test_question_count):
+            lesson, version = live[i % len(live)]
+            duration = int(content.duration_of(version) or 1)
+            q_type = _DEMO_TYPES[i % len(_DEMO_TYPES)]
+            text_uz, text_ru, options, explain_uz, explain_ru = _demo_question(q_type, rng)
+            q = questions.create_draft(
+                db, module=module, lesson=lesson, q_type=q_type, text_uz=text_uz,
+                text_ru=text_ru, explanation_uz=explain_uz, explanation_ru=explain_ru,
+                difficulty=i % 3 + 1, video_ts_s=(i * 7) % duration, options=options,
+                actor_id=actor_id,
+            )  # fmt: skip
+            questions.approve(db, q, actor_id)
+            created += 1
+        module.test_cooldown_hours = 0
+        questions.publish_test(db, module, actor_id)
+    db.flush()
+    return created
+
+
+def _demo_question(q_type: QuestionType, rng: random.Random):
+    """(text_uz, text_ru, options, explanation_uz, explanation_ru) for one demo question."""
+    option = questions.OptionData
+    if q_type == QuestionType.single:
+        a, b = rng.randint(2, 20), rng.randint(2, 20)
+        right = a + b
+        values = [right, *rng.sample([right - 2, right - 1, right + 1, right + 2, right + 10], 3)]
+        rng.shuffle(values)
+        return (
+            f"[Demo] {a} + {b} nechaga teng?", f"[Демо] Сколько будет {a} + {b}?",
+            [option(str(v), str(v), v == right) for v in values],
+            f"[Demo] {a} + {b} = {right}.", f"[Демо] {a} + {b} = {right}.",
+        )  # fmt: skip
+    if q_type == QuestionType.multiple:
+        values = rng.sample(range(2, 40, 2), 2) + rng.sample(range(1, 40, 2), 2)
+        rng.shuffle(values)
+        return (
+            "[Demo] Qaysi sonlar juft?", "[Демо] Какие числа чётные?",
+            [option(str(v), str(v), v % 2 == 0) for v in values],
+            "[Demo] Juft son 2 ga qoldiqsiz boʻlinadi.", "[Демо] Чётное число делится на 2.",
+        )  # fmt: skip
+    values = sorted(rng.sample(range(1, 100), 4))  # authored order is the answer
+    shown = ", ".join(map(str, values))
+    return (
+        "[Demo] Sonlarni kichigidan kattasiga tartiblang.",
+        "[Демо] Расположите числа по возрастанию.",
+        [option(str(v), str(v)) for v in values],
+        f"[Demo] Toʻgʻri tartib: {shown}.", f"[Демо] Правильный порядок: {shown}.",
+    )
 
 
 def _generate_demo_video(target, seconds: int) -> None:
@@ -380,6 +448,8 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"error: {exc}", file=sys.stderr)
                     return 1
                 print(f"demo lessons: {result['lessons']} created and published")
+                if result["lessons"]:
+                    print(f"demo questions: {result['questions']} approved; tests published")
         elif args.command == "create-admin":
             try:
                 temp = create_staff(db, args.employee_id, args.full_name, AccessRole(args.role))

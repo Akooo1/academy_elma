@@ -13,26 +13,16 @@ from tests.factories import (
     make_learner,
     make_live_lesson,
     make_user,
+    make_version_ready,
     make_wave,
 )
 
 RELEASES = "/api/v1/admin/releases"
-VTT = "WEBVTT\n\n00:00.000 --> 00:04.000\nKirish\n"
+_make_ready = make_version_ready
 
 
 def _admin(db, client):
     login(client, make_user(db, role=AccessRole.admin))
-
-
-def _make_ready(db, client, version_id: int, duration: float = 60.0) -> None:
-    """Video transcoded + both subtitles uploaded (what the checklist wants)."""
-    version = db.get(LessonVersion, version_id)
-    version.video_asset_id = make_asset(db, duration).id
-    db.flush()
-    for lang in ("uz", "ru"):
-        url = f"/api/v1/admin/lesson-versions/{version_id}/subtitles/{lang}"
-        resp = client.put(url, content=VTT)
-        assert resp.status_code == 200, resp.text
 
 
 def test_one_draft_release_at_a_time(db, client, reference):

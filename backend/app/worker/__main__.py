@@ -9,9 +9,11 @@ import logging
 import signal
 import threading
 
+from app import clock
 from app.auth.sessions import purge_expired
 from app.db import SessionLocal
 from app.models.enums import JobLane
+from app.services.attempts import finalize_overdue
 from app.worker import transcode  # noqa: F401  (registers the job handler)
 from app.worker.runner import claim_next, recover_interrupted, run_job
 
@@ -42,6 +44,9 @@ def sweep_loop(stop: threading.Event) -> None:
                 db.commit()
                 if removed:
                     log.info("purged %s expired sessions", removed)
+                graded = finalize_overdue(db, clock.utcnow())
+                if graded:
+                    log.info("graded %s abandoned attempts", graded)
         except Exception:
             log.exception("sweep error")
         stop.wait(SWEEP_SECONDS)

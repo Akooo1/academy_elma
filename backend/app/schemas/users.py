@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.models import AppUser, AuditEvent
 from app.models.enums import AccessRole, Language
@@ -72,6 +72,19 @@ class UserPatchIn(BaseModel):
 
 class TempPasswordOut(BaseModel):
     temp_password: str
+
+
+class AttemptResetIn(BaseModel):
+    module_id: int
+    reason: str = Field(max_length=1000)  # mandatory; blank is refused
+
+
+class AttemptResetOut(BaseModel):
+    id: int
+    user_id: int
+    module_id: int
+    reason: str
+    created_at: datetime
 
 
 class ImportProblem(BaseModel):

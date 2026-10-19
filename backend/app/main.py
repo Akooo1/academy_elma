@@ -2,7 +2,17 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from app.api import admin_content, admin_releases, admin_users, auth, learner, reference, system
+from app.api import (
+    admin_content,
+    admin_questions,
+    admin_releases,
+    admin_users,
+    attempts,
+    auth,
+    learner,
+    reference,
+    system,
+)
 from app.auth.csrf import CsrfHeaderMiddleware
 from app.config import settings
 from app.errors import register_error_handlers
@@ -26,10 +36,12 @@ def create_app() -> FastAPI:
         system.router,
         auth.router,
         learner.router,
+        attempts.router,
         admin_users.router,
         reference.router,
         admin_content.router,
         admin_releases.router,
+        admin_questions.router,
     )
     for router in routers:
         app.include_router(router, prefix=API_PREFIX)

@@ -46,7 +46,7 @@ from app.schemas.content import (
     VideoOut,
     lesson_admin_out,
 )
-from app.services import audit, content, media, releases, vtt
+from app.services import audit, content, media, questions, releases, vtt
 from app.worker.runner import enqueue
 
 router = APIRouter(prefix="/admin", tags=["admin: content"])
@@ -186,6 +186,13 @@ def patch_module(
 ):
     module = _module(db, module_id)
     changes = body.model_dump(exclude_none=True)
+    new_n = changes.get("test_question_count", module.test_question_count)
+    if module.test_published_at is not None and new_n != module.test_question_count:
+        pool = questions.pool_status(db, module, new_n)  # the published test keeps 3 x N
+        if not pool.publishable:
+            raise AppError(
+                409, "test.pool_too_small", {"have": pool.approved_active, "need": pool.required}
+            )
     for attr, value in changes.items():
         setattr(module, attr, value)
     if changes:

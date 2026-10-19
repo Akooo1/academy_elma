@@ -5,15 +5,18 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
+from app import clock
 from app.api.common import body_reader, csv_response
 from app.auth import sessions
 from app.auth.deps import require_roles
 from app.db import get_db
 from app.errors import AppError, not_found
-from app.models import AppUser, AuditEvent, Branch, UserImport
-from app.models.enums import AccessRole, Language
+from app.models import AppUser, AuditEvent, Branch, Module, UserImport
+from app.models.enums import AccessRole, Language, ModuleType
 from app.schemas.common import Page
 from app.schemas.users import (
+    AttemptResetIn,
+    AttemptResetOut,
     AuditOut,
     ImportCommitOut,
     ImportProblem,
@@ -23,7 +26,7 @@ from app.schemas.users import (
     UserPatchIn,
     UserRow,
 )
-from app.services import audit, csv_import
+from app.services import attempts, audit, csv_import
 from app.services.users import issue_temp_password
 
 router = APIRouter(prefix="/admin/users", tags=["admin: users"])
@@ -227,3 +230,26 @@ def reset_password(
     audit.record(db, "user.password_reset", actor_id=actor.id, target_user_id=user.id)
     db.commit()
     return TempPasswordOut(temp_password=temp)
+
+
+@router.post("/{user_id}/reset-attempts", response_model=AttemptResetOut, status_code=201)
+def reset_attempts(
+    user_id: int,
+    body: AttemptResetIn,
+    actor: AppUser = Depends(admin_only),
+    db: Session = Depends(get_db),
+) -> AttemptResetOut:
+    """A fresh attempt cycle for one module (D4). An attempt in progress is graded first."""
+    user = _get_user(db, user_id)
+    module = db.get(Module, body.module_id)
+    if module is None or module.type == ModuleType.faq:
+        raise not_found("module")
+    reason = body.reason.strip()
+    if not reason:
+        raise AppError(400, "reset.reason_required")
+    row = attempts.reset(db, user, module, reason, actor.id, clock.utcnow())
+    db.commit()
+    return AttemptResetOut(
+        id=row.id, user_id=user.id, module_id=module.id, reason=row.reason,
+        created_at=row.created_at,
+    )  # fmt: skip

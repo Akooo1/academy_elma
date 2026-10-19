@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -174,8 +175,15 @@ class ReleaseLessonOut(BaseModel):
     problems: list[str]
 
 
+class ReleaseModuleProblem(BaseModel):
+    module_id: int
+    code: str  # "pool_too_small"
+    params: dict[str, Any]
+
+
 class ReleaseDetail(ReleaseOut):
     lessons: list[ReleaseLessonOut]
+    module_problems: list[ReleaseModuleProblem]
     ready: bool
 
 

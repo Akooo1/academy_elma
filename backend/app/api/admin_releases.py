@@ -16,6 +16,7 @@ from app.schemas.content import (
     ReleaseDetail,
     ReleaseIn,
     ReleaseLessonOut,
+    ReleaseModuleProblem,
     ReleaseOut,
     ReleasePatch,
     VersionOut,
@@ -90,12 +91,14 @@ def get_release(release_id: int, db: Session = Depends(get_db), _: AppUser = Dep
         )
     )
     earlier = aliased(LessonVersion)
+    drafts = [v for v in versions if v.status == LessonVersionStatus.draft]
+    draft_problems = releases.lesson_problems(db, drafts)
     lessons_out = []
     for v in versions:
         changed = db.scalar(
             select(exists().where(earlier.lesson_id == v.lesson_id, earlier.id < v.id))
         )
-        problems = releases.version_problems(v) if v.status == LessonVersionStatus.draft else []
+        problems = draft_problems.get(v.id, [])
         lessons_out.append(
             ReleaseLessonOut(
                 lesson_id=v.lesson_id,
@@ -107,13 +110,17 @@ def get_release(release_id: int, db: Session = Depends(get_db), _: AppUser = Dep
                 problems=problems,
             )
         )
+    is_draft = release.status == ReleaseStatus.draft
+    found = releases.module_problems(db, release, drafts) if is_draft else []
+    module_problems = [ReleaseModuleProblem(**p) for p in found]
     ready = (
-        release.status == ReleaseStatus.draft
+        is_draft
         and bool(lessons_out)
         and all(not item.problems for item in lessons_out)
+        and not module_problems
     )
     base = ReleaseOut.of(release, len(versions)).model_dump()
-    return ReleaseDetail(**base, lessons=lessons_out, ready=ready)
+    return ReleaseDetail(**base, lessons=lessons_out, module_problems=module_problems, ready=ready)
 
 
 @router.patch("/{release_id}", response_model=ReleaseOut)

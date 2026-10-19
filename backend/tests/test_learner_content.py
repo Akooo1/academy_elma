@@ -26,10 +26,16 @@ def test_module_list_and_detail_show_progress_and_test_rules(db, client, referen
     assert [lsn["title_uz"] for lsn in detail["lessons"]] == ["Kirish", "Mijozni qidirish"]
     assert [lsn["completed"] for lsn in detail["lessons"]] == [True, False]
     assert detail["lessons"][0]["watched_pct"] == 90
-    assert detail["test"] == {
+    test = detail["test"]
+    status = test.pop("status")
+    assert test == {
         "question_count": 15, "pass_pct": 80, "time_limit_min": 20, "max_attempts": 3,
         "published": False, "lessons_complete": False,
     }  # fmt: skip
+    assert status["can_start"] is False
+    assert [r["code"] for r in status["reasons"]] == ["lessons_incomplete", "test_not_published"]
+    assert status["reasons"][0]["params"] == {"completed": 1, "total": 2}
+    assert (status["attempts_used"], status["attempts_max"]) == (0, 3)
 
 
 def test_player_payload(db, client, reference):

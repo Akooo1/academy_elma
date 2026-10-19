@@ -141,3 +141,49 @@ def test_seeded_wave_assignments_match_mockup(db):
     assert "CORE" not in set().union(*by_role.values())  # Core is implicit, never stored
     wave = db.scalar(select(Wave))
     assert wave.go_live - wave.training_start == timedelta(days=59)
+
+
+def test_demo_questions_fill_a_3n_pool_and_publish_the_demo_tests(db, client, reference, clock):
+    from app.cli import seed_demo_questions
+    from app.models import Question
+    from app.models.enums import QuestionStatus, QuestionType
+    from app.services import questions
+    from tests.factories import (
+        answer_key,
+        complete_lesson,
+        make_learner,
+        make_live_lesson,
+        make_wave,
+    )
+
+    core, farovon = reference.modules["CORE"], reference.modules["FAROVON"]
+    versions = [make_live_lesson(db, core, duration=40)[1] for _ in range(3)]
+    make_live_lesson(db, farovon, duration=40)
+    admin = make_user(db, role=AccessRole.admin)
+
+    assert seed_demo_questions(db, admin.id) == 90
+    for module in (core, farovon):
+        pool = questions.pool_status(db, module)
+        assert (pool.approved_active, pool.by_difficulty) == (45, {1: 15, 2: 15, 3: 15})
+        assert module.test_published_at is not None and module.test_cooldown_hours == 0
+    bank = db.scalars(select(Question).where(Question.module_id == core.id)).all()
+    assert {q.status for q in bank} == {QuestionStatus.approved}
+    assert {q.lesson_version_id for q in bank} == {v.id for v in versions}
+    for q in bank:  # the arithmetic really has the marked answer
+        if q.type == QuestionType.single:
+            a, b = (int(x) for x in q.text_uz.split("]")[1].split("nechaga")[0].split("+"))
+            assert [o.text_uz for o in q.options if o.is_correct] == [str(a + b)]
+        elif q.type == QuestionType.ordering:
+            values = [int(o.text_uz) for o in q.options]
+            assert values == sorted(values)
+
+    make_wave(db, [reference.tashkent], {})
+    learner = make_learner(db, reference)
+    for version in versions:
+        complete_lesson(db, learner, version)
+    login(client, learner)
+    attempt_id = client.post(f"/api/v1/me/modules/{core.id}/attempts").json()["attempt_id"]
+    for position, answer in answer_key(db, attempt_id).items():
+        client.put(f"/api/v1/me/attempts/{attempt_id}/answers/{position}", json={"answer": answer})
+    result = client.post(f"/api/v1/me/attempts/{attempt_id}/submit").json()
+    assert (result["score_pct"], result["passed"]) == (100.0, True)

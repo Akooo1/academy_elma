@@ -101,7 +101,7 @@ def test_job_for_a_replaced_video_is_skipped(db):
 
 def test_demo_seed_publishes_generated_lessons(db, reference):
     admin = make_user(db, role=AccessRole.admin)
-    assert seed_demo_content(db, admin.id, seconds=3) == {"lessons": 5}
+    assert seed_demo_content(db, admin.id, seconds=3) == {"lessons": 5, "questions": 90}
     release = db.scalar(select(ElmaRelease).where(ElmaRelease.code == "2026.11"))
     assert release.status == ReleaseStatus.published
     live = db.scalars(

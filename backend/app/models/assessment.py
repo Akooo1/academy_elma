@@ -141,7 +141,8 @@ class AttemptQuestion(Base):
     position: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
     question_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("question.id"), index=True)
     option_order: Mapped[list[int]] = mapped_column(ARRAY(BigInteger))
-    answer: Mapped[Any | None] = mapped_column(JSONB)
+    # SQL NULL (not JSON null) when unanswered or cleared.
+    answer: Mapped[Any | None] = mapped_column(JSONB(none_as_null=True))
     flagged: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     is_correct: Mapped[bool | None] = mapped_column(Boolean)

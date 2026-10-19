@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from typing import Annotated
+from datetime import datetime
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.enums import ModuleType
+from app.models.enums import AttemptStatus, ModuleType, QuestionType
 
 Seconds = Annotated[float, Field(ge=0, allow_inf_nan=False)]
 
@@ -40,6 +41,7 @@ class TestInfo(BaseModel):
     max_attempts: int
     published: bool
     lessons_complete: bool
+    status: TestStatus
 
 
 class LearnerModuleDetail(LearnerModule):
@@ -53,6 +55,13 @@ class ProgressOut(BaseModel):
     max_position_s: float
     last_position_s: float
     completed: bool
+
+
+class FragmentOut(BaseModel):
+    span_start_s: float
+    span_end_s: float
+    watched_pct: int
+    satisfied: bool
 
 
 class PlayerOut(BaseModel):
@@ -73,6 +82,7 @@ class PlayerOut(BaseModel):
     speed_change_allowed: bool
     prev_lesson_id: int | None
     next_lesson_id: int | None
+    remediation: list[FragmentOut]  # fragments to re-watch after a failed test
 
 
 class HeartbeatIn(BaseModel):
@@ -87,3 +97,122 @@ class HeartbeatIn(BaseModel):
 
 class HeartbeatOut(ProgressOut):
     duration_s: float
+
+
+# --- tests and attempts ---------------------------------------------------------------------
+
+
+class ReasonOut(BaseModel):
+    code: str
+    params: dict[str, Any]
+
+
+class TestStatus(BaseModel):
+    can_start: bool
+    reasons: list[ReasonOut]  # every reason it can't start now
+    attempts_used: int
+    attempts_max: int
+    cooldown_until: datetime | None
+    open_attempt_id: int | None
+    last_attempt_id: int | None
+    last_score_pct: float | None
+    last_passed: bool | None
+
+
+class AttemptStarted(BaseModel):
+    attempt_id: int
+    created: bool  # False: an attempt already in progress was resumed
+
+
+class AttemptOption(BaseModel):
+    # Position in this attempt's display order. Option ids are never sent: they follow the
+    # authored order, which is the answer of an ordering question.
+    index: int
+    text_uz: str
+    text_ru: str
+
+
+class AttemptQuestionOut(BaseModel):
+    position: int
+    type: QuestionType
+    text_uz: str
+    text_ru: str
+    image_url: str | None
+    options: list[AttemptOption]  # display order; no answer key
+    answer: list[int] | None  # display indices
+    flagged: bool
+
+
+class AttemptOut(BaseModel):
+    id: int
+    module_id: int
+    module_title_uz: str
+    module_title_ru: str
+    status: AttemptStatus
+    number: int
+    max_attempts: int
+    question_count: int
+    pass_pct: int
+    started_at: datetime
+    expires_at: datetime
+    server_now: datetime  # the browser derives its countdown from this, not its own clock
+    answered: int
+    questions: list[AttemptQuestionOut]  # empty once the attempt is finished
+
+
+class AnswerIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Display indices of the chosen options (ordering: all of them, in the chosen order).
+    # Omit to keep the saved answer; null or [] clears it.
+    answer: list[Annotated[int, Field(ge=0)]] | None = Field(None, max_length=8)
+    flagged: bool | None = None
+
+
+class AnswerOut(BaseModel):
+    position: int
+    answered: bool
+    flagged: bool
+
+
+class RemediationOut(BaseModel):
+    lesson_id: int
+    lesson_title_uz: str
+    lesson_title_ru: str
+    missed_count: int
+    span_start_s: float
+    span_end_s: float
+    watched_pct: int
+    satisfied: bool
+
+
+class HistoryRow(BaseModel):
+    attempt_id: int
+    number: int
+    status: AttemptStatus
+    started_at: datetime
+    score_pct: float | None
+    passed: bool | None
+    time_spent_s: int | None
+
+
+class ResultOut(BaseModel):
+    """What a learner sees after a test: never the correct answers or explanations."""
+
+    attempt_id: int
+    module_id: int
+    status: AttemptStatus
+    number: int
+    score_pct: float
+    correct_count: int
+    question_count: int
+    pass_pct: int
+    passed: bool
+    time_spent_s: int | None
+    attempts_used: int
+    attempts_max: int
+    attempts_left: int
+    next_attempt_at: datetime | None
+    remediation: list[RemediationOut]
+    remediation_complete: bool
+    history: list[HistoryRow]
