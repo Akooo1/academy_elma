@@ -131,6 +131,15 @@ def clock(monkeypatch) -> FrozenClock:
     return frozen
 
 
+@pytest.fixture(autouse=True)
+def media_root(tmp_path, monkeypatch) -> Path:
+    """Every test writes media into its own temporary folder."""
+    root = tmp_path / "media"
+    root.mkdir()
+    monkeypatch.setattr("app.config.settings.media_root", str(root))
+    return root
+
+
 @pytest.fixture
 def reference(db):
     """Reference data plus two branches (Tashkent city, Samarkand)."""

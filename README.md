@@ -4,7 +4,11 @@ Internal learning platform for the Single Window (Yagona oyna) rollout on Elma36
 
 The design, schema, endpoints and phases are in [docs/PLAN.md](docs/PLAN.md).
 
-**Status: Phase 1 (foundation).** This phase delivers the database schema, auth, CSV user import, seed data, the worker and the container setup. The web UI arrives in Phases 6–7; until then nginx serves a placeholder page and the API lives under `/api/v1`.
+**Status: Phase 2 (content).** Done so far:
+- Phase 1: schema, auth, CSV user import, seed, worker and containers.
+- Phase 2: modules and lessons, Elma365 releases (draft → publish), video upload with HLS transcoding, subtitles and PDFs, and the server-side 90 % watch rule.
+
+The web UI arrives in Phases 6–7. Until then nginx serves a placeholder page and the API lives under `/api/v1`.
 
 ## Run (machine with internet)
 
@@ -17,7 +21,21 @@ make admin ID=ADM-0001 NAME="Full Name"   # prints a one-time password
 
 Then log in as that admin (`POST /api/v1/auth/login`). A first login with the one-time password has to change it before anything else works.
 
-Demo data, never for production: `make demo-seed PASSWORD=...` adds 25 synthetic branches, 245 synthetic employees and one demo wave. Every account shares that password.
+Demo data, never for production:
+- `make demo-seed PASSWORD=...` adds 25 synthetic branches, 245 synthetic employees and one demo wave. Every account shares that password.
+- `docker compose exec api python -m app.cli seed --demo` generates five short test-pattern lessons for Core and Farovon (with synthetic uz/ru subtitles), transcodes them and publishes them as release 2026.11. An admin must exist first.
+
+## Content workflow
+
+Content only reaches learners through an Elma365 release:
+
+1. An admin opens a draft release (`POST /api/v1/admin/releases`).
+2. A methodologist adds lessons. For a live lesson whose screen changed, the admin marks it as changed instead, which opens a new version.
+3. Upload the MP4 (raw body, up to 2 GB, with `?synthetic_data_confirmed=true`). The worker transcodes it to 360p/480p/720p HLS.
+4. Upload the uz and ru WebVTT subtitles, plus an optional reference PDF in both languages.
+5. Publish. The checklist blocks publishing until every lesson has a ready video and both subtitle files.
+
+Subtitle and PDF fixes on live lessons don't need a release. Replacing a live video always does.
 
 ## Offline server
 

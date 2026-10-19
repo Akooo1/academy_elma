@@ -123,3 +123,18 @@ DEMO_ASSIGNMENTS = {
     "operatsion_xodim": ["UZCARD", "CRM"],
     "filial_rahbari": ["FAROVON", "RETAIL", "UZCARD", "LEGAL", "CRM"],
 }
+
+# Demo content (`seed --demo`): short generated test-pattern videos, published as one release.
+DEMO_RELEASE_CODE = "2026.11"
+DEMO_VIDEO_SECONDS = 40
+DEMO_LESSONS = {
+    "CORE": [
+        ("Kirish", "Введение"),
+        ("Mijozni qidirish", "Поиск клиента"),
+        ("Mijoz kartasi", "Карточка клиента"),
+    ],
+    "FAROVON": [
+        ("Mahsulot va shartlar", "Продукт и условия"),
+        ("Arizani yaratish", "Создание заявки"),
+    ],
+}

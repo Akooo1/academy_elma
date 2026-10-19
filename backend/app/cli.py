@@ -2,6 +2,8 @@
 
   seed                         reference data (course, regions, job roles, 7 modules)
   seed --synthetic --password  + synthetic branches, ~245 users and a demo wave (demo only)
+  seed --demo                  + generated demo lessons for Core and Farovon (needs ffmpeg
+                                 and an existing admin; demo only)
   create-admin                 bootstrap an admin or methodologist (prints a temp password)
   import-branches FILE         upsert branches from CSV: code, name_uz, name_ru, region_code
 """
@@ -12,7 +14,9 @@ import argparse
 import csv
 import io
 import random
+import subprocess
 import sys
+import uuid
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -25,15 +29,17 @@ from app.models import (
     AppUser,
     Branch,
     Course,
+    ElmaRelease,
     JobRole,
     Module,
     Region,
+    VideoAsset,
     Wave,
     WaveBranch,
     WaveModuleRole,
 )
-from app.models.enums import AccessRole, Language, ModuleType
-from app.services import audit, csvio
+from app.models.enums import AccessRole, Language, ModuleType, ReleaseStatus
+from app.services import audit, csvio, media, releases
 from app.services.users import (
     EMPLOYEE_ID_RE,
     access_role_for,
@@ -202,6 +208,74 @@ def _synthetic_person(rng: random.Random) -> tuple[str, Language]:
     return f"{first} {surname}", language
 
 
+def seed_demo_content(db: Session, actor_id: int, seconds: int | None = None) -> dict[str, int]:
+    """Generated test-pattern lessons with synthetic subtitles, published as one release."""
+    from app.worker.transcode import transcode_asset  # needs ffmpeg; imported only here
+
+    code = seed_data.DEMO_RELEASE_CODE
+    existing = db.scalar(select(ElmaRelease).where(ElmaRelease.code == code))
+    if existing is not None:
+        if existing.status == ReleaseStatus.draft:  # an earlier run stopped half-way
+            raise ValueError(f"release {code} is still a draft; delete it, then run again")
+        return {"lessons": 0}
+    if releases.get_draft(db) is not None:
+        raise ValueError("a draft release is open; publish or delete it first")
+    seconds = seconds or seed_data.DEMO_VIDEO_SECONDS
+    release = releases.create_release(db, code, "Demo content (synthetic videos)", actor_id)
+    modules = {m.code: m for m in db.scalars(select(Module))}
+    created = 0
+    for module_code, titles in seed_data.DEMO_LESSONS.items():
+        for n, (title_uz, title_ru) in enumerate(titles, start=1):
+            module = modules[module_code]
+            _, version = releases.create_lesson(db, module, title_uz, title_ru, actor_id)
+            asset_id = uuid.uuid4()
+            source = media.original_path(asset_id)
+            _generate_demo_video(source, seconds)
+            asset = VideoAsset(
+                id=asset_id,
+                original_filename=f"demo-{module_code.lower()}-{n}.mp4",
+                size_bytes=source.stat().st_size,
+                synthetic_confirmed_by=actor_id,
+                synthetic_confirmed_at=clock.utcnow(),
+                uploaded_by=actor_id,
+            )
+            db.add(asset)
+            db.flush()
+            version.video_asset_id = asset.id
+            version.vtt_uz_path = media.write_new(
+                "vtt", f"{version.id}-uz", ".vtt", _demo_vtt(f"{title_uz}: {{n}}-qism", seconds)
+            )
+            version.vtt_ru_path = media.write_new(
+                "vtt", f"{version.id}-ru", ".vtt", _demo_vtt(f"{title_ru}: часть {{n}}", seconds)
+            )
+            transcode_asset(db, asset)
+            created += 1
+    releases.publish(db, release.id, actor_id)
+    return {"lessons": created}
+
+
+def _generate_demo_video(target, seconds: int) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+         "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=25",
+         "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100",
+         "-t", str(seconds), "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+         "-shortest", str(target)],
+        check=True, timeout=600,
+    )  # fmt: skip
+
+
+def _demo_vtt(template: str, seconds: int, cue_s: int = 8) -> bytes:
+    lines = ["WEBVTT", ""]
+    for n, start in enumerate(range(0, seconds, cue_s), start=1):
+        end = min(start + cue_s, seconds)
+        timing = f"00:{start // 60:02d}:{start % 60:02d}.000 --> "
+        timing += f"00:{end // 60:02d}:{end % 60:02d}.000"
+        lines += [timing, "[Demo] " + template.format(n=n), ""]
+    return "\n".join(lines).encode("utf-8")
+
+
 def create_staff(db: Session, employee_id: str, full_name: str, role: AccessRole) -> str:
     """Create an admin/methodologist; returns the one-time password to hand over."""
     if role not in (AccessRole.admin, AccessRole.methodologist):
@@ -269,6 +343,7 @@ def main(argv: list[str] | None = None) -> int:
     p_seed = sub.add_parser("seed", help="reference data; --synthetic adds demo people")
     p_seed.add_argument("--synthetic", action="store_true")
     p_seed.add_argument("--password", help="password for all synthetic users (required)")
+    p_seed.add_argument("--demo", action="store_true", help="generated demo lessons (needs ffmpeg)")
 
     p_admin = sub.add_parser("create-admin", help="bootstrap an admin or methodologist")
     p_admin.add_argument("--employee-id", required=True)
@@ -290,6 +365,21 @@ def main(argv: list[str] | None = None) -> int:
             if args.synthetic:
                 for name, n in seed_synthetic(db, args.password).items():
                     print(f"synthetic {name}: {n} created")
+            if args.demo:
+                admin = db.scalar(
+                    select(AppUser)
+                    .where(AppUser.access_role == AccessRole.admin)
+                    .order_by(AppUser.id)
+                )
+                if admin is None:
+                    print("error: create an admin first (create-admin)", file=sys.stderr)
+                    return 1
+                try:
+                    result = seed_demo_content(db, admin.id)
+                except ValueError as exc:
+                    print(f"error: {exc}", file=sys.stderr)
+                    return 1
+                print(f"demo lessons: {result['lessons']} created and published")
         elif args.command == "create-admin":
             try:
                 temp = create_staff(db, args.employee_id, args.full_name, AccessRole(args.role))

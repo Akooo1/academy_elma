@@ -303,7 +303,7 @@ app_user 1─* certificate (→ module, elma_release, test_attempt; operator →
 The player sends a heartbeat every 15 s, and on pause or unload via `fetch(..., {keepalive: true})`. Each heartbeat carries the ranges actually played since the previous one. With the progress row locked, the server:
 1. clips the ranges to `[0, duration]`;
 2. before completion, drops anything that starts beyond `max_position + 5 s` (seek block);
-3. caps the played seconds this heartbeat can earn at `min(now − last_heartbeat, 30 s) × speed_cap + 2 s`, where `speed_cap` is 1.0 before completion and 2.0 after [DEFAULT: the speed selector only appears after completion, like seeking];
+3. caps the played seconds this heartbeat can earn at `min(now − last_heartbeat, 30 s) × speed_cap × 1.15`, where `speed_cap` is 1.0 before completion and 2.0 after [DEFAULT: the speed selector only appears after completion, like seeking]. The 15 % jitter allowance is proportional, so sending heartbeats more often never earns extra credit. The first heartbeat only starts the clock, and the resume point is clamped to the seek limit;
 4. merges the ranges into `watched` and sets `completed_at` once `watched_s ≥ 0.9 × duration`.
 
 Re-watching a range adds nothing. Two open tabs can't double-count, because the cap uses wall-clock time per row. The client applies the same seek limit for usability, but the server never accepts a completion flag from it.
