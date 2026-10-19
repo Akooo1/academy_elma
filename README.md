@@ -4,11 +4,12 @@ Internal learning platform for the Single Window (Yagona oyna) rollout on Elma36
 
 The design, schema, endpoints and phases are in [docs/PLAN.md](docs/PLAN.md).
 
-**Status: Phase 4 (certification).** Done so far:
+**Status: Phase 5 (AI drafting).** Done so far:
 - Phase 1: schema, auth, CSV user import, seed, worker and containers.
 - Phase 2: modules and lessons, Elma365 releases (draft → publish), video upload with HLS transcoding, subtitles and PDFs, and the server-side 90 % watch rule.
 - Phase 3: question bank with approval, test publishing (pool ≥ 3×N), test assembly, timed attempts, grading, attempt limit and cooldown, remediation fragments, item statistics and admin attempt reset.
 - Phase 4: certificates (module and operator) with PDF and QR verification, per-module recertification after a release, the certification-status API, waves, readiness reports with CSV, the access list and the learner home page.
+- Phase 5: AI drafting of questions from a lesson's transcript, with every draft checked on the server and reviewed by a methodologist.
 
 The web UI arrives in Phases 6–7. Until then nginx serves a placeholder page and the API lives under `/api/v1`.
 
@@ -60,6 +61,19 @@ Learners (under `/api/v1/me`):
 - `POST /attempts/{id}/submit` returns the score.
 - On a fail, the result lists the video fragments to re-watch. Correct answers and explanations are never sent.
 - The next attempt needs both the cooldown and every fragment watched. An admin can grant a fresh cycle with a mandatory reason (`POST /api/v1/admin/users/{id}/reset-attempts`).
+
+## AI question drafting (optional)
+
+Off unless `ANTHROPIC_API_KEY` is set. Without a key, `GET /api/v1/admin/ai/status` returns `{"enabled": false}`, the UI hides the feature, and nothing leaves the network.
+
+With a key:
+- A methodologist calls `POST /api/v1/admin/lesson-versions/{id}/ai-drafts` with `{"count": 10, "types": ["single", "multiple", "ordering"]}`. The source is the lesson's uz/ru subtitles by default; it can instead be `{"source": "text", "text": "..."}` (pasted text). Optionally add `"include_lesson_pdf": true` (the lesson's reference PDFs) or `"reference_text"`.
+- The worker calls Claude (`ANTHROPIC_MODEL`, default `claude-opus-5-5`) with structured JSON output. Progress shows on `GET /api/v1/admin/jobs/{id}`.
+- Every returned item is checked before it is saved: allowed type, option count, exactly one correct answer for single choice, a source span inside the video, both languages. Invalid items are dropped and counted by reason in the job result.
+- Saved items are **drafts** with `origin=ai`, the source span and the quoted transcript excerpt. They go through the same approval as hand-written questions. Screenshot questions are always written by hand.
+- If the model declines a request, it is retried server-side on Anthropic's recommended fallback model. If every model declines, the job fails with `ai.refused`.
+
+Learner-facing code never imports the AI package; a test enforces this.
 
 ## Certificates and access
 

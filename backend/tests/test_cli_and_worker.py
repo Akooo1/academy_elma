@@ -90,6 +90,7 @@ def test_job_queue_claims_runs_and_records_failures(db, monkeypatch):
 
     handler = lambda _db, job: {"ok": job.payload["n"]}  # noqa: E731
     monkeypatch.setitem(runner.HANDLERS, JobKind.transcode, handler)
+    monkeypatch.delitem(runner.HANDLERS, JobKind.ai_draft, raising=False)  # a kind nobody handles
     job = runner.claim_next(db, JobLane.media)
     assert job.id == done.id and job.status == JobStatus.running and job.attempts == 1
     assert runner.claim_next(db, JobLane.media) is None  # nothing else queued in this lane

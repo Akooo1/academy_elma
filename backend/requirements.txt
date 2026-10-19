@@ -6,3 +6,4 @@ alembic==1.20.0
 psycopg[binary]==3.3.6
 argon2-cffi==25.1.0
 reportlab==5.0.1  # certificate PDF + its built-in QR widget
+anthropic==1.15.0  # AI drafting only; imported lazily, only when ANTHROPIC_API_KEY is set

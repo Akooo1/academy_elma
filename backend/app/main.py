@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from app.api import (
+    admin_ai,
     admin_content,
     admin_questions,
     admin_releases,
@@ -50,6 +51,7 @@ def create_app() -> FastAPI:
         admin_releases.router,
         admin_questions.router,
         admin_waves.router,
+        admin_ai.router,
     )
     for router in routers:
         app.include_router(router, prefix=API_PREFIX)

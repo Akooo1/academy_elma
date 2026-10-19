@@ -140,6 +140,7 @@ def create_draft(
     actor_id: int | None,
     origin: QuestionOrigin = QuestionOrigin.manual,
     extra: dict[str, Any] | None = None,
+    version: LessonVersion | None = None,
 ) -> Question:
     if module.type == ModuleType.faq:
         raise AppError(400, "module.no_test")
@@ -148,7 +149,7 @@ def create_draft(
     problems = structure_problems(q_type, options)
     if problems:
         raise AppError(400, "question.invalid", {"problems": problems})
-    version = target_version(db, lesson)
+    version = version or target_version(db, lesson)
     _check_timestamp(version, video_ts_s)
     q = Question(
         module_id=module.id,

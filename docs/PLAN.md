@@ -390,6 +390,12 @@ By construction, certificates of other modules are not touched. Recertification 
 - **Execution:** generation runs as a worker job, because calls take tens of seconds.
 - **Server-side validation:** question types, option counts, exactly one correct answer for single choice, timestamps within the video, both languages present. Invalid items are dropped and counted.
 - **Saving:** drafts are saved with `origin=ai`, plus the source excerpt and span (mockup 7).
+- **As built:**
+  - `generate()` returns the draft list wrapped with the count of malformed items, the model that answered and whether a fallback model ran.
+  - Requests use streaming, `effort: medium`, and server-side `fallbacks: "default"`, so a policy decline is retried on Anthropic's recommended model.
+  - A failed job stores a stable error code (`ai.refused`, `ai.truncated`, `ai.rate_limited`, `ai.unreachable`, ...) for the UI.
+  - One drafting job per lesson version at a time. Drafts attach to the version whose transcript was used.
+  - Items repeating a question already in the module are dropped as duplicates.
 
 **R12 Item statistics.**
 Counters are updated in the grading transaction. A question is flagged at ≥ 30 attempts with < 20 % or > 95 % correct, and the question bank has a filter for flagged questions.

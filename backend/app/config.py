@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 def _str(name: str, default: str) -> str:
@@ -43,9 +43,12 @@ class Settings:
     argon2_time_cost: int
     argon2_memory_kib: int
     argon2_parallelism: int
-    cert_status_api_keys: tuple[str, ...]
+    cert_status_api_keys: tuple[str, ...] = field(repr=False)  # secrets stay out of logs
     # Printed above "Kompetensiyalar markazi rahbari" on certificates (kept in each snapshot).
     cert_signatory_name: str
+    # AI question drafting (authoring only). Empty key: the feature is hidden.
+    anthropic_api_key: str = field(repr=False)
+    anthropic_model: str
 
     @property
     def is_dev(self) -> bool:
@@ -71,6 +74,8 @@ def load_settings() -> Settings:
         argon2_parallelism=_int("ARGON2_PARALLELISM", 1),
         cert_status_api_keys=_list("CERT_STATUS_API_KEYS"),
         cert_signatory_name=_str("CERT_SIGNATORY_NAME", "").strip(),
+        anthropic_api_key=_str("ANTHROPIC_API_KEY", "").strip(),
+        anthropic_model=_str("ANTHROPIC_MODEL", "claude-opus-5-5").strip() or "claude-opus-5-5",
     )
 
 

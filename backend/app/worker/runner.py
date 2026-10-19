@@ -24,6 +24,15 @@ HANDLERS: dict[JobKind, Handler] = {}
 MAX_ATTEMPTS = 3
 
 
+class JobError(Exception):
+    """An expected failure with a stable code the admin UI can translate."""
+
+    def __init__(self, code: str, params: dict[str, Any] | None = None) -> None:
+        super().__init__(code)
+        self.code = code
+        self.params = params or {}
+
+
 def enqueue(
     db: Session,
     kind: JobKind,
@@ -63,6 +72,13 @@ def run_job(db: Session, job: Job) -> None:
         job.status = JobStatus.done
         job.result = result
         job.last_error = None
+    except JobError as exc:
+        db.rollback()
+        log.warning("job %s (%s) failed: %s", job.id, job.kind, exc.code)
+        job = db.get(Job, job.id)
+        job.status = JobStatus.failed
+        job.result = {"error": {"code": exc.code, "params": exc.params}}
+        job.last_error = exc.code
     except Exception as exc:  # the job records the failure; the worker keeps running
         db.rollback()
         log.exception("job %s (%s) failed", job.id, job.kind)
