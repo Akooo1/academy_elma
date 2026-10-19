@@ -4,15 +4,14 @@ Internal learning platform for the Single Window (Yagona oyna) rollout on Elma36
 
 The design, schema, endpoints and phases are in [docs/PLAN.md](docs/PLAN.md).
 
-**Status: Phase 6 (learner web UI).** Done so far:
+**Status: Phase 7 (staff screens).** Done so far:
 - Phase 1: schema, auth, CSV user import, seed, worker and containers.
 - Phase 2: modules and lessons, Elma365 releases (draft → publish), video upload with HLS transcoding, subtitles and PDFs, and the server-side 90 % watch rule.
 - Phase 3: question bank with approval, test publishing (pool ≥ 3×N), test assembly, timed attempts, grading, attempt limit and cooldown, remediation fragments, item statistics and admin attempt reset.
 - Phase 4: certificates (module and operator) with PDF and QR verification, per-module recertification after a release, the certification-status API, waves, readiness reports with CSV, the access list and the learner home page.
 - Phase 5: AI drafting of questions from a lesson's transcript, with every draft checked on the server and reviewed by a methodologist.
 - Phase 6: the learner web app in Uzbek (default) and Russian: home, courses, lessons with the video player, tests, results with remediation, certificates, FAQ and the public verification page.
-
-The admin, methodologist and branch-head screens arrive in Phase 7. Until then they use the API under `/api/v1`.
+- Phase 7: the admin, methodologist and branch-head screens, also in Uzbek and Russian: reports, users and CSV import, waves, content and video upload, Elma365 releases, and the question bank with AI drafts.
 
 ## Run (machine with internet)
 
@@ -23,7 +22,7 @@ make seed                   # course, regions, job roles, the 7 modules
 make admin ID=ADM-0001 NAME="Full Name"   # prints a one-time password
 ```
 
-Learners open `http://<server>/` and sign in with their employee ID. A first login with the one-time password has to change it before anything else works. The admin uses the API (`POST /api/v1/auth/login`) until Phase 7.
+Everyone opens `http://<server>/` and signs in with their employee ID. A first login with the one-time password has to change it before anything else works. Learners and branch heads land on the learning home page; admins and methodologists land in the panel at `/admin`.
 
 Demo data, never for production:
 - `make demo-seed PASSWORD=...` adds 25 synthetic branches, 245 synthetic employees and one demo wave. Every account shares that password.
@@ -48,14 +47,31 @@ Videos are H.264/AAC, which Chrome, Edge, Yandex Browser and Firefox on Windows 
 
 **Frontend development:** with the stack running (`make up`), `cd frontend && npm ci && npm run dev` serves the app on port 5173, proxying `/api` and `/media` to nginx on port 80.
 
+## Staff screens
+
+The panel at `/admin` is a separate bundle, so learners never download it. What each role sees:
+
+| Role | Screens |
+|---|---|
+| Admin | Reports · Content · Question bank · Waves · Users · Elma365 releases |
+| Methodologist | Content · Question bank (an admin-only address sends them back to the bank) |
+| Branch head | "Hisobot" in the learner menu: the same report, limited by the server to their own branch, with CSV export |
+
+- **Reports:** readiness by wave, region, module and role. KPI tiles (click one to list those people), a branch table (≥ 90 % certified = ready), a learner table with search, and a drill-down per person. CSV export and the Elma365 access list (admin only).
+- **Users:** CSV import in two steps. The check lists row errors in the reader's language and offers them as a CSV; the commit offers the new one-time passwords once as a file. Per person: module status, attempt reset (a reason is required and goes to the audit log), password reset (the temporary password is shown once), permission level, deactivation, and the audit journal.
+- **Waves:** names, the three dates (start ≤ deadline ≤ go-live), branches (a branch can be in one wave only; the picker shows where the others are) and the role × module matrix (Core is always required).
+- **Content:** modules, lessons, ordering, test settings with the bank size needed. Per lesson: MP4 upload with the mandatory synthetic-data confirmation, upload progress and transcode status, a preview with the transcript, uz/ru subtitles and the optional PDFs.
+- **Elma365 releases:** a timeline; in the draft, tick the lessons whose screens changed. The page shows who will have to recertify (only in the touched modules), the transition period, and a checklist that unlocks publishing.
+- **Question bank:** queue per module (drafts, approved, flagged by item statistics, retired), an editor for the four question types, approval with the server's reasons when it refuses, wording-only edits on approved questions (duplicate to change the key), and the pool banner that publishes or withdraws the test. With AI enabled, "Transkriptdan qoralama yaratish" asks for drafts and shows what was created and why items were dropped.
+
 ## Content workflow
 
 Content only reaches learners through an Elma365 release:
 
-1. An admin opens a draft release (`POST /api/v1/admin/releases`).
-2. A methodologist adds lessons. For a live lesson whose screen changed, the admin marks it as changed instead, which opens a new version.
-3. Upload the MP4 (raw body, up to 2 GB, with `?synthetic_data_confirmed=true`). The worker transcodes it to 360p/480p/720p HLS.
-4. Upload the uz and ru WebVTT subtitles, plus an optional reference PDF in both languages.
+1. An admin opens a draft release (Elma365 relizlari → Yangi reliz).
+2. A methodologist adds lessons (Kontent → module → Dars qoʻshish). For a live lesson whose screen changed, the admin ticks it in the draft release instead, which opens a new version.
+3. Upload the MP4 (up to 2 GB) and tick the synthetic-data confirmation. The worker transcodes it to 360p/480p/720p HLS.
+4. Upload the uz and ru WebVTT subtitles, plus an optional reference PDF in both languages (up to 50 MB each).
 5. Publish. The checklist blocks publishing until every lesson has a ready video and both subtitle files.
 
 Subtitle and PDF fixes on live lessons don't need a release. Replacing a live video always does.
@@ -123,7 +139,7 @@ The platform makes no outbound calls at runtime:
 
 ## Users and branches
 
-- **HR CSV import** (admin): `POST /api/v1/admin/users/import` validates the file and returns row-level errors. `POST /api/v1/admin/users/import/{id}/commit` then applies it.
+- **HR CSV import** (admin, Xodimlar → CSV import; API: `POST /api/v1/admin/users/import`, then `…/import/{id}/commit`). The template is linked on the page.
   - Columns: `employee_id, full_name, branch_code, region, role, preferred_language`.
   - Accepts UTF-8 (with or without BOM) or Windows-1251, separated by `;` or `,`.
   - Existing employees are updated and never deleted.
@@ -141,7 +157,7 @@ Without Docker, run from `backend/` with `TEST_DATABASE_URL=postgresql+psycopg:/
 
 The web app is checked whenever it is built (`cd frontend && npm run build`, and inside the `academy-web` image build):
 - `tsc` type check;
-- `npm run check:i18n`: uz and ru have the same keys and placeholders, every key the code uses exists, and Uzbek text uses ʻ and ʼ rather than apostrophes;
+- `npm run check:i18n`: uz and ru have the same keys and placeholders, every key the code uses exists (including keys built at runtime and the API error codes), and Uzbek text uses ʻ and ʼ rather than apostrophes;
 - `npm test`: unit tests of the played-range tracker behind the heartbeats and of the Tashkent-time formatting (Node's built-in runner, no extra packages).
 
 ## Backup

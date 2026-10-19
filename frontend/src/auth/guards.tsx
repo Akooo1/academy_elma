@@ -1,4 +1,7 @@
+import type { ReactNode } from "react";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
+
+import type { AccessRole } from "../api/types";
 
 import { PageLoader } from "../components/Feedback";
 import { useAuth } from "./AuthContext";
@@ -16,4 +19,11 @@ export function RequireAuth() {
     return <Navigate to="/change-password" replace />;
   }
   return <Outlet />;
+}
+
+/** Pages for some roles only; anyone else is sent to their own start page. */
+export function RequireRole({ roles, children, fallback = "/" }: { roles: AccessRole[]; children: ReactNode; fallback?: string }) {
+  const { me } = useAuth();
+  if (!me || !roles.includes(me.access_role)) return <Navigate to={fallback} replace />;
+  return <>{children}</>;
 }

@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { auth } from "../../api/learner";
 import { useAuth } from "../../auth/AuthContext";
 import { ErrorLine } from "../../components/Feedback";
+import { landing } from "../../lib/roles";
 
 export function ChangePassword() {
   const { t } = useTranslation();
@@ -27,7 +28,7 @@ export function ChangePassword() {
     try {
       await auth.changePassword(current, next);
       await refresh();
-      navigate("/", { replace: true });
+      navigate(me ? landing(me.access_role) : "/", { replace: true });
     } catch (err) {
       setError(err);
     } finally {

@@ -1,7 +1,7 @@
 import { lazy, Suspense } from "react";
 import { Route, Routes } from "react-router-dom";
 
-import { RequireAuth } from "./auth/guards";
+import { RequireAuth, RequireRole } from "./auth/guards";
 import { PageLoader } from "./components/Feedback";
 import { LearnerLayout, PublicLayout } from "./layouts/LearnerLayout";
 import { Certificates } from "./pages/learner/Certificates";
@@ -19,6 +19,10 @@ import { Verify } from "./pages/learner/Verify";
 
 // The player pulls in hls.js; load it only when a lesson is opened (slow branch links).
 const Lesson = lazy(() => import("./pages/learner/Lesson"));
+// Staff screens are a separate download; learners never fetch them.
+const AdminApp = lazy(() => import("./admin/AdminApp"));
+const BranchReport = lazy(() => import("./admin/reports/BranchReport"));
+const BranchReportUser = lazy(() => import("./admin/reports/BranchReportUser"));
 
 export function App() {
   return (
@@ -34,6 +38,14 @@ export function App() {
             <Route path="/change-password" element={<ChangePassword />} />
           </Route>
           <Route path="/attempts/:attemptId" element={<TestTake />} />
+          <Route
+            path="/admin/*"
+            element={
+              <RequireRole roles={["admin", "methodologist"]}>
+                <AdminApp />
+              </RequireRole>
+            }
+          />
           <Route element={<LearnerLayout />}>
             <Route index element={<Home />} />
             <Route path="/courses" element={<Courses />} />
@@ -44,6 +56,22 @@ export function App() {
             <Route path="/certificates" element={<Certificates />} />
             <Route path="/faq" element={<Faq />} />
             <Route path="/faq/:lessonId" element={<Lesson faq />} />
+            <Route
+              path="/reports"
+              element={
+                <RequireRole roles={["branch_head"]}>
+                  <BranchReport />
+                </RequireRole>
+              }
+            />
+            <Route
+              path="/reports/users/:userId"
+              element={
+                <RequireRole roles={["branch_head"]}>
+                  <BranchReportUser />
+                </RequireRole>
+              }
+            />
             <Route path="*" element={<NotFound />} />
           </Route>
         </Route>

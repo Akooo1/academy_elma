@@ -7,6 +7,7 @@ import { useAuth } from "../auth/AuthContext";
 import { Brand } from "../components/Brand";
 import { initials } from "../lib/format";
 import { name, useLang } from "../lib/lang";
+import { canEditContent } from "../lib/roles";
 
 export function LangSwitch() {
   const { setLanguage } = useAuth();
@@ -73,12 +74,15 @@ function UserMenu() {
 
 export function LearnerLayout() {
   const { t } = useTranslation();
+  const { me } = useAuth();
   const items = [
     { to: "/", label: t("nav.home"), end: true },
     { to: "/courses", label: t("nav.courses") },
     { to: "/certificates", label: t("nav.certificates") },
     { to: "/faq", label: t("nav.faq") },
   ];
+  if (me?.access_role === "branch_head") items.push({ to: "/reports", label: t("nav.reports") });
+  if (canEditContent(me)) items.push({ to: "/admin", label: t("nav.admin") });
   return (
     <>
       <header className="topbar">

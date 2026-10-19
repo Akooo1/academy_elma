@@ -1,6 +1,6 @@
 # Yagona oyna Akademiyasi: Phase 0 plan
 
-Status: **Phases 1–6 built.** "As built" notes record where the implementation settled details this plan left open.
+Status: **Phases 1–7 built.** "As built" notes record where the implementation settled details this plan left open.
 Items marked **[DECIDE]** need your answer before Phase 1. Items marked **[DEFAULT]** are what I will do unless you object.
 Mockup numbers refer to the 11 reference screens (1 · Bosh sahifa … 11 · Elma365 relizlari).
 
@@ -580,6 +580,18 @@ Layouts target 1366×768 and up, with click targets of at least 44 px and the co
 - **Result:** attempts left, cooldown and the retake button appear only on the module's latest attempt, not on older results.
 - **i18n:** Uzbek (default) and Russian JSON files, Russian plural forms, Uzbek ʻ (U+02BB) and ʼ (U+02BC). The language follows the user's `preferred_language` and is saved on change.
 - No dependencies beyond §8. Unit tests use Node's built-in runner; the browser walkthrough was run with a Playwright outside the repo.
+
+**As built (Phase 7, staff side):**
+- All routes in the table above exist, plus `/reports` and `/reports/users/:id` for branch heads inside the learner layout (the "Hisobot" menu item). The `/admin/*` screens are one lazily loaded bundle.
+- **Roles:** admins land on reports, methodologists on the question bank. A methodologist who opens an admin-only address is sent back to the bank; anyone else who opens `/admin` goes to the learner home. The server still checks every request.
+- **i18n:** all staff strings live in the same `uz.json`/`ru.json` as the learner ones (≈ 830 keys). Where an API error code needs different wording for staff (e.g. `test.pool_too_small` with the have/need numbers), an `admin.errors.*` key overrides `errors.*` inside the panel. The build-time check also covers keys built at runtime (`roles.*`, `bank.type.*`, …) and every admin error code.
+- **Users:** the import check shows row errors translated from their codes, with the server's error CSV as a download; after commit the one-time passwords are offered once as a CSV file and never shown again. The reset reason is required in the UI as well as on the server.
+- **Releases:** the publish confirmation counts the module certificates that will need renewal (a sum over modules; people with two touched modules would be counted twice by a people count).
+- **Content:** once a video is ready, the upload area folds into a "replace" button. The preview uses the same player as learners with tracking off, and clicking a transcript line seeks the preview.
+- **Question bank:** an approved question allows wording changes only (the server rejects key changes); "Nusxa olish" makes an editable draft copy. The AI button only appears when `/admin/ai/status` says AI is enabled; the PDF option is offered when the lesson has at least one guide PDF (the server accepts one or both).
+- **nginx:** `client_max_body_size` is 51 MB on the lesson PDF upload route so that the API's own 50 MB check (with a translated message) is what an oversized PDF hits; other routes keep 10 MB, video keeps 2.1 GB.
+- **Not built from the mockups:** mockup 9's "Kirish nazorati" toggles. Those rules (access list = certified only; branch heads see overdue people) are fixed in the system, so switches would have no effect.
+- Walkthrough (Playwright, outside the repo) at 1366×768 against the compose stack with synthetic data: admin reports/users/waves/content/releases, methodologist bank, branch-head report, learner smoke test, the AI dialog against mocked endpoints; no console or CSP errors and no external requests.
 
 ---
 

@@ -1,3 +1,4 @@
+import { createContext, useContext } from "react";
 import { useTranslation } from "react-i18next";
 
 import { ApiError } from "../api/client";
@@ -22,13 +23,22 @@ function readable(params: Record<string, unknown>): Record<string, unknown> {
   return out;
 }
 
+/** Staff screens can word an API error differently from the learner screens: a key under this
+ *  prefix (e.g. "admin.errors") wins over the shared errors.* key for the same code. */
+export const ErrorWording = createContext<string | null>(null);
+
 /** An API error code, translated (errors.* keys), with its parameters. */
 export function useErrorText() {
   const { t } = useTranslation();
+  const prefix = useContext(ErrorWording);
   return (error: unknown): string => {
     if (!(error instanceof ApiError)) return t("errors.generic");
-    const text = t(`errors.${error.code}`, { ...readable(error.params), defaultValue: "" });
-    return typeof text === "string" && text ? text : t("errors.generic");
+    const keys = [...(prefix ? [`${prefix}.${error.code}`] : []), `errors.${error.code}`];
+    for (const key of keys) {
+      const text = t(key, { ...readable(error.params), defaultValue: "" });
+      if (typeof text === "string" && text) return text;
+    }
+    return t("errors.generic");
   };
 }
 

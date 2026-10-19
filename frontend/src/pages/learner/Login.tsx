@@ -3,12 +3,15 @@ import { useTranslation } from "react-i18next";
 import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 
 import { auth } from "../../api/learner";
+import type { AccessRole } from "../../api/types";
 import { useAuth } from "../../auth/AuthContext";
 import { ErrorLine } from "../../components/Feedback";
+import { landing } from "../../lib/roles";
 
 /** Only same-site paths after login (never an absolute URL from the query string). */
-function safeNext(next: string | null): string {
-  return next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
+function safeNext(next: string | null, role: AccessRole): string {
+  if (next && next.startsWith("/") && !next.startsWith("//") && next !== "/") return next;
+  return landing(role);
 }
 
 export function Login() {
@@ -21,7 +24,7 @@ export function Login() {
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
 
-  if (me) return <Navigate to={me.must_change_password ? "/change-password" : safeNext(params.get("next"))} replace />;
+  if (me) return <Navigate to={me.must_change_password ? "/change-password" : safeNext(params.get("next"), me.access_role)} replace />;
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -30,7 +33,7 @@ export function Login() {
     try {
       const user = await auth.login(username.trim(), password);
       signedIn(user);
-      navigate(user.must_change_password ? "/change-password" : safeNext(params.get("next")), { replace: true });
+      navigate(user.must_change_password ? "/change-password" : safeNext(params.get("next"), user.access_role), { replace: true });
     } catch (err) {
       setError(err);
     } finally {
