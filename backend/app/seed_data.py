@@ -124,6 +124,21 @@ DEMO_ASSIGNMENTS = {
     "filial_rahbari": ["FAROVON", "RETAIL", "UZCARD", "LEGAL", "CRM"],
 }
 
+# Demo learning path (`seed --demo`): a wave whose menejer takes Core + Farovon only, so one
+# sitting covers fail → re-watch → pass → product → module and operator certificates.
+DEMO_PATH = {
+    "wave_uz": "Demo toʻlqini · Asosiy + Farovon",
+    "wave_ru": "Демо-волна · Основной + Фаровон",
+    "branch_code": "01-900",
+    "branch_uz": "Demo BXM",
+    "branch_ru": "Демо ЦБУ",
+    "region_code": "01",
+    "job_role": "menejer",
+    "products": ["FAROVON"],
+    "employee_id": "DEMO-0001",
+    "full_name": "Demo Oʻquvchi",
+}
+
 # Demo content (`seed --demo`): short generated test-pattern videos, published as one release.
 DEMO_RELEASE_CODE = "2026.11"
 DEMO_VIDEO_SECONDS = 40

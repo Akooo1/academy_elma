@@ -44,6 +44,8 @@ class Settings:
     argon2_memory_kib: int
     argon2_parallelism: int
     cert_status_api_keys: tuple[str, ...]
+    # Printed above "Kompetensiyalar markazi rahbari" on certificates (kept in each snapshot).
+    cert_signatory_name: str
 
     @property
     def is_dev(self) -> bool:
@@ -68,6 +70,7 @@ def load_settings() -> Settings:
         argon2_memory_kib=_int("ARGON2_MEMORY_KIB", 19456),
         argon2_parallelism=_int("ARGON2_PARALLELISM", 1),
         cert_status_api_keys=_list("CERT_STATUS_API_KEYS"),
+        cert_signatory_name=_str("CERT_SIGNATORY_NAME", "").strip(),
     )
 
 

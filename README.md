@@ -4,10 +4,11 @@ Internal learning platform for the Single Window (Yagona oyna) rollout on Elma36
 
 The design, schema, endpoints and phases are in [docs/PLAN.md](docs/PLAN.md).
 
-**Status: Phase 3 (assessment).** Done so far:
+**Status: Phase 4 (certification).** Done so far:
 - Phase 1: schema, auth, CSV user import, seed, worker and containers.
 - Phase 2: modules and lessons, Elma365 releases (draft → publish), video upload with HLS transcoding, subtitles and PDFs, and the server-side 90 % watch rule.
 - Phase 3: question bank with approval, test publishing (pool ≥ 3×N), test assembly, timed attempts, grading, attempt limit and cooldown, remediation fragments, item statistics and admin attempt reset.
+- Phase 4: certificates (module and operator) with PDF and QR verification, per-module recertification after a release, the certification-status API, waves, readiness reports with CSV, the access list and the learner home page.
 
 The web UI arrives in Phases 6–7. Until then nginx serves a placeholder page and the API lives under `/api/v1`.
 
@@ -27,6 +28,7 @@ Demo data, never for production:
 - `docker compose exec api python -m app.cli seed --demo` generates five short test-pattern lessons for Core and Farovon (with synthetic uz/ru subtitles), transcodes them and publishes them as release 2026.11. An admin must exist first.
   - It also writes 45 approved demo questions per module (3×N for N = 15) and publishes both tests, with the cooldown set to 0.
   - The questions are simple arithmetic, so whoever runs the demo can pass or fail on purpose.
+  - It creates the learner `DEMO-0001` (one-time password printed once), assigned exactly Core + Farovon. That covers the whole path: fail → re-watch → pass Core → Farovon → both module certificates and the operator certificate → PDF and verification.
 
 ## Content workflow
 
@@ -58,6 +60,18 @@ Learners (under `/api/v1/me`):
 - `POST /attempts/{id}/submit` returns the score.
 - On a fail, the result lists the video fragments to re-watch. Correct answers and explanations are never sent.
 - The next attempt needs both the cooldown and every fragment watched. An admin can grant a fresh cycle with a mandatory reason (`POST /api/v1/admin/users/{id}/reset-attempts`).
+
+## Certificates and access
+
+- Passing a test issues a **module certificate** (`YO-2026-000123`). Once Core and every module assigned to the learner hold valid certificates, an **operator certificate** follows.
+- The PDF (A4 landscape, uz + ru, bundled Inter font) is drawn on first download from a snapshot taken at issue time, so later renames never change it. Its QR code opens `{PUBLIC_BASE_URL}/verify/{number}?c={code}`. Verification is public but needs the printed code as well as the number.
+- **Recertification:** publishing a release flags only the certificates of the modules it touched. With `transition_days` > 0 the old certificate stays valid until that date ("recertify by"); with 0 (the default) it needs renewal at once. Learners re-watch the changed lessons and pass that module's test again in a fresh attempt cycle.
+- **Access gate:** `GET /api/v1/certification-status?employee_id=...` with an `X-API-Key` header (keys in `CERT_STATUS_API_KEYS`). It returns the operator status and, per module, `valid` · `recert_required` · `missing`.
+- **Access list:** `GET /api/v1/exports/access-list.csv` (admin, optionally `?wave_id=` or `?branch_id=`) lists learners who hold a valid operator certificate *and* a valid certificate for every module assigned to them now.
+- **Reports** (`/api/v1/reports/summary`, `/branches`, `/users`, `/users/{id}`, all with `?format=csv`): one bucket per learner (certified · recert_required · in_progress · not_started), an overdue flag after the wave deadline, and branch readiness (≥ 90 % certified = ready, 60–89 % at risk). Branch heads always get their own branch.
+- **Waves** (`/api/v1/admin/waves`): dates, branches (each in at most one wave) and the role × module matrix. Changing branches or the matrix makes the worker re-check the operator certificates of the learners concerned.
+
+Set `CERT_SIGNATORY_NAME` to print the signatory's name on certificates.
 
 ## Offline server
 

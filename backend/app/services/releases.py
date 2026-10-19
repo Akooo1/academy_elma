@@ -1,10 +1,10 @@
 """Elma365 releases: the only way content changes reach learners.
 
 A draft release collects new lessons and new versions of changed lessons.
-Publishing makes them live in one transaction: the new versions go live, questions
-about the replaced videos are retired, open remediation on them is closed, and a
-module with a published test keeps at least 3 x N questions in its pool. Phase 4
-adds the recertification effects on certificates.
+Publishing makes them live in one transaction: the new versions go live,
+certificates of the affected modules (only those) need renewal, questions about
+the replaced videos are retired and open remediation on them is closed. A module
+with a published test keeps at least 3 x N questions in its pool.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from app import clock
 from app.errors import AppError
 from app.models import ElmaRelease, Lesson, LessonVersion, Module, Question
 from app.models.enums import LessonVersionStatus, QuestionStatus, ReleaseStatus, VideoStatus
-from app.services import audit, content, media, questions, remediation, vtt
+from app.services import audit, certificates, content, media, questions, remediation, vtt
 
 CODE_RE = re.compile(r"^[0-9A-Za-z][0-9A-Za-z._-]{0,31}$")
 # Subtitles may run a moment past the last frame.
@@ -200,6 +200,61 @@ def module_problems(
     return out
 
 
+def impact_preview(
+    db: Session, release: ElmaRelease, versions: list[LessonVersion]
+) -> list[dict[str, Any]]:
+    """Per affected module: what changes, who renews, and the pool once the release is live.
+
+    Only these modules are touched; certificates elsewhere never change.
+    """
+    by_module: dict[int, list[LessonVersion]] = {}
+    for v in versions:
+        by_module.setdefault(v.lesson.module_id, []).append(v)
+    live = set(
+        db.scalars(
+            select(LessonVersion.lesson_id).where(
+                LessonVersion.lesson_id.in_([v.lesson_id for v in versions] or [0]),
+                LessonVersion.status == LessonVersionStatus.published,
+            )
+        )
+    )
+    pending = dict(
+        db.execute(
+            select(Question.module_id, func.count())
+            .where(
+                Question.lesson_version_id.in_([v.id for v in versions] or [0]),
+                Question.status == QuestionStatus.draft,
+            )
+            .group_by(Question.module_id)
+        ).all()
+    )
+    renewals = certificates.impact(db, by_module)
+    out = []
+    for module in db.scalars(
+        select(Module).where(Module.id.in_(by_module or [0])).order_by(Module.sort, Module.id)
+    ):
+        drafts = by_module[module.id]
+        changed = sum(1 for v in drafts if v.lesson_id in live)
+        total = len(content.published_lessons(db, module.id)) + len(drafts) - changed
+        published = module.test_published_at is not None
+        lessons = [v.lesson_id for v in versions]
+        out.append(
+            {
+                "module_id": module.id, "code": module.code, "title_uz": module.title_uz,
+                "title_ru": module.title_ru, "changed_lessons": changed,
+                "added_lessons": len(drafts) - changed, "total_lessons": total,
+                "certificates": renewals.get(module.id, (0, 0))[0],
+                "learners": renewals.get(module.id, (0, 0))[1],
+                "questions_pending": pending.get(module.id, 0),
+                "pool_have": questions.pool_after_release(db, module.id, release.id, lessons)
+                if published else None,
+                "pool_need": questions.POOL_FACTOR * module.test_question_count
+                if published else None,
+            }
+        )  # fmt: skip
+    return out
+
+
 def checklist(db: Session, release: ElmaRelease) -> list[dict[str, Any]]:
     versions = draft_versions(db, release)
     if not versions:
@@ -254,6 +309,7 @@ def publish(db: Session, release_id: int, actor_id: int) -> ElmaRelease:
     db.execute(
         update(Module).where(Module.id.in_(module_ids)).values(current_release_id=release.id)
     )
+    flagged = certificates.flag_recert(db, release, module_ids, now)
     # Questions about the old videos describe old screens; their fragments no longer exist.
     retired = questions.retire_for_superseded_versions(db, replaced)
     remediation.close_for_superseded_versions(db, replaced)
@@ -266,7 +322,10 @@ def publish(db: Session, release_id: int, actor_id: int) -> ElmaRelease:
         actor_id=actor_id,
         entity="release",
         entity_id=release.id,
-        data={"lessons": len(lesson_ids), "module_ids": module_ids, "questions_retired": retired},
+        data={
+            "lessons": len(lesson_ids), "module_ids": module_ids, "questions_retired": retired,
+            "certificates_flagged": flagged,
+        },  # fmt: skip
     )
     db.flush()
     db.expire_all()

@@ -14,6 +14,7 @@ from app.models.enums import LessonVersionStatus, ReleaseStatus
 from app.schemas.content import (
     LessonAdminOut,
     ReleaseDetail,
+    ReleaseImpact,
     ReleaseIn,
     ReleaseLessonOut,
     ReleaseModuleProblem,
@@ -113,6 +114,7 @@ def get_release(release_id: int, db: Session = Depends(get_db), _: AppUser = Dep
     is_draft = release.status == ReleaseStatus.draft
     found = releases.module_problems(db, release, drafts) if is_draft else []
     module_problems = [ReleaseModuleProblem(**p) for p in found]
+    impact = [ReleaseImpact(**i) for i in releases.impact_preview(db, release, drafts)]
     ready = (
         is_draft
         and bool(lessons_out)
@@ -120,7 +122,9 @@ def get_release(release_id: int, db: Session = Depends(get_db), _: AppUser = Dep
         and not module_problems
     )
     base = ReleaseOut.of(release, len(versions)).model_dump()
-    return ReleaseDetail(**base, lessons=lessons_out, module_problems=module_problems, ready=ready)
+    return ReleaseDetail(
+        **base, lessons=lessons_out, module_problems=module_problems, impact=impact, ready=ready
+    )
 
 
 @router.patch("/{release_id}", response_model=ReleaseOut)

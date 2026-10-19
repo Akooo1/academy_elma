@@ -187,3 +187,14 @@ def test_demo_questions_fill_a_3n_pool_and_publish_the_demo_tests(db, client, re
         client.put(f"/api/v1/me/attempts/{attempt_id}/answers/{position}", json={"answer": answer})
     result = client.post(f"/api/v1/me/attempts/{attempt_id}/submit").json()
     assert (result["score_pct"], result["passed"]) == (100.0, True)
+
+
+def test_demo_learner_takes_exactly_core_and_farovon(db, reference, clock):
+    from app.cli import seed_demo_learner
+    from app.services import access
+
+    temp = seed_demo_learner(db)
+    assert temp and seed_demo_learner(db) is None  # second run: already there
+    learner = db.scalar(select(AppUser).where(AppUser.employee_id == "DEMO-0001"))
+    assert learner.must_change_password and learner.access_role == AccessRole.learner
+    assert [m.code for m in access.assigned_modules(db, learner)] == ["CORE", "FAROVON"]

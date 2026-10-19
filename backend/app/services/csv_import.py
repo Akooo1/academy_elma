@@ -26,7 +26,7 @@ from app.auth import passwords
 from app.errors import AppError
 from app.models import AppUser, Branch, JobRole, Region, UserImport
 from app.models.enums import Language
-from app.services import audit, csvio
+from app.services import audit, certificates, csvio
 from app.services.i18n import t
 from app.services.users import EMPLOYEE_ID_RE, access_role_for, normalize_employee_id
 
@@ -220,6 +220,7 @@ def commit_import(db: Session, imp: UserImport, actor: AppUser, lang: Language) 
     }
     result = CommitResult(created=0, updated=0, unchanged=0)
     new_rows: list[tuple[dict[str, Any], Branch, JobRole]] = []
+    reassigned: list[int] = []  # branch or job role changed: assignments may differ
 
     for row in imp.valid_rows:
         branch = lookups.branches.get(row["branch_code"])
@@ -244,6 +245,8 @@ def commit_import(db: Session, imp: UserImport, actor: AppUser, lang: Language) 
             new_rows.append((row, branch, role))
             continue
         changes = _apply_update(user, row, branch, role)
+        if {"branch_id", "job_role_id"} & changes.keys():
+            reassigned.append(user.id)
         if changes:
             result.updated += 1
             audit.record(
@@ -287,6 +290,7 @@ def commit_import(db: Session, imp: UserImport, actor: AppUser, lang: Language) 
         )
     result.created = len(created)
 
+    certificates.enqueue_evaluation(db, reassigned, actor.id)
     imp.committed_at = clock.utcnow()
     imp.created_count = result.created
     imp.updated_count = result.updated

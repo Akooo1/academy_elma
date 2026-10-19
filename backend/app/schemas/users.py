@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from app.models import AppUser, AuditEvent
 from app.models.enums import AccessRole, Language
 from app.schemas.common import Ref
+from app.schemas.reports import LearnerDetailOut
 
 
 class UserRow(BaseModel):
@@ -63,6 +64,7 @@ class AuditOut(BaseModel):
 
 class UserDetail(UserRow):
     audit: list[AuditOut]
+    learning: LearnerDetailOut  # per-module status, attempts and certificates (mockup 10)
 
 
 class UserPatchIn(BaseModel):

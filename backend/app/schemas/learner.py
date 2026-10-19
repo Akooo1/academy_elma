@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.enums import AttemptStatus, ModuleType, QuestionType
+from app.models.enums import AttemptStatus, CertificateKind, ModuleType, QuestionType
+from app.schemas.common import Ref
+from app.services.certificates import CertStatus
+from app.services.reports import ModuleState
 
 Seconds = Annotated[float, Field(ge=0, allow_inf_nan=False)]
 
@@ -32,6 +35,9 @@ class LearnerModule(BaseModel):
     lessons_total: int
     lessons_completed: int
     duration_s: float
+    status: ModuleState  # certified · recert_required · in_progress · not_started
+    score_pct: float | None  # of the current certificate
+    recert_due_at: datetime | None  # "recertify by" once a release changed the module
 
 
 class TestInfo(BaseModel):
@@ -216,3 +222,52 @@ class ResultOut(BaseModel):
     remediation: list[RemediationOut]
     remediation_complete: bool
     history: list[HistoryRow]
+
+
+# --- home page (mockup 1) ------------------------------------------------------------------
+
+
+class DashboardWave(BaseModel):
+    id: int
+    name_uz: str
+    name_ru: str
+    training_start: date
+    deadline: date
+    go_live: date
+    days_left: int  # until the end of the deadline day; negative once overdue
+
+
+class ResumeOut(BaseModel):
+    lesson_id: int
+    module_id: int
+    module_title_uz: str
+    module_title_ru: str
+    lesson_number: int
+    title_uz: str
+    title_ru: str
+    duration_s: float
+    watched_pct: int
+
+
+class DashboardCert(BaseModel):
+    number: str
+    kind: CertificateKind
+    module_id: int | None
+    title_uz: str | None  # module certificates; the operator one has no module
+    title_ru: str | None
+    status: CertStatus
+    recert_due_at: datetime | None
+
+
+class DashboardOut(BaseModel):
+    full_name: str
+    branch: Ref | None
+    job_role: Ref | None
+    wave: DashboardWave | None  # None: the branch is in no wave yet (FAQ only)
+    modules_certified: int
+    modules_assigned: int
+    overdue: bool
+    path: list[LearnerModule]
+    resume: ResumeOut | None
+    operator_status: CertStatus
+    certificates: list[DashboardCert]  # current ones

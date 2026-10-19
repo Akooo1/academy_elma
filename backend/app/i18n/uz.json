@@ -20,6 +20,62 @@
     "full_name": "F.I.Sh.",
     "branch_code": "Filial kodi",
     "branch": "Filial",
-    "temp_password": "Vaqtinchalik parol"
+    "temp_password": "Vaqtinchalik parol",
+    "metric": "Koʻrsatkich",
+    "value": "Qiymat",
+    "region": "Hudud",
+    "wave": "Toʻlqin",
+    "job_role": "Rol",
+    "status": "Holat",
+    "overdue": "Muddati oʻtgan",
+    "modules_certified": "Sertifikatlangan modullar",
+    "last_seen": "Oxirgi faollik",
+    "learners": "Xodimlar",
+    "certified": "Sertifikatlangan",
+    "certified_pct": "Sertifikatlangan, %",
+    "in_progress": "Jarayonda",
+    "not_started": "Boshlamagan",
+    "recert_required": "Qayta sertifikatlash",
+    "readiness": "Tayyorlik",
+    "module": "Modul",
+    "lessons": "Darslar",
+    "attempts": "Urinishlar",
+    "last_score": "Oxirgi natija, %",
+    "certificate": "Sertifikat",
+    "issued": "Berilgan sana",
+    "recertify_by": "Qayta sertifikatlash muddati"
+  },
+  "pdf": {
+    "brand": "Yagona oyna Akademiyasi",
+    "number": "Sertifikat raqami",
+    "title": "SERTIFIKAT",
+    "confirms": "Ushbu sertifikat tasdiqlaydiki",
+    "body_operator": "Elma365 «Yagona oyna» tizimida ishlash boʻyicha oʻqitishni muvaffaqiyatli yakunladi va quyidagi malaka berildi:",
+    "body_module": "Elma365 «Yagona oyna» tizimida ishlash boʻyicha quyidagi oʻquv modulini muvaffaqiyatli yakunladi:",
+    "qualification": "Yagona oyna operatori",
+    "modules": "Modullar",
+    "issued": "Berilgan sana",
+    "release": "Elma365 reliz {codes}",
+    "signatory_title": "Kompetensiyalar markazi rahbari",
+    "verify": "Tekshirish",
+    "code": "Kod"
+  },
+  "report": {
+    "status": {
+      "certified": "Sertifikatlangan",
+      "recert_required": "Qayta sertifikatlash",
+      "in_progress": "Jarayonda",
+      "not_started": "Boshlamagan"
+    },
+    "readiness": {
+      "ready": "Tayyor",
+      "at_risk": "Xavf ostida",
+      "not_ready": "Tayyor emas"
+    },
+    "yes": "Ha",
+    "no": "Yoʻq",
+    "total": "Biriktirilgan",
+    "overdue": "Muddati oʻtgan",
+    "branches": "Filiallar"
   }
 }

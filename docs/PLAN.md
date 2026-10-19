@@ -343,6 +343,8 @@ The test opens when every *current* published lesson version of the module is co
 **R8 Certificates.**
 - **Module certificate on pass:** it gets a number and a random verify code, a snapshot is stored, and the learner's previous certificate for that module is superseded.
 - **Operator certificate:** issued automatically once Core and every assigned module hold valid certificates. It is reissued (the old one superseded) after any recertification, and when assignments change for a learner who is complete.
+  - A module assigned later, which the learner hasn't passed yet, does not invalidate the operator certificate itself. It does keep the learner off the access list (rule 13) until they pass it.
+  - A certificate earned on an attempt that started before a release replaced that module's lessons needs renewal at once, the same as every other certificate on the old content.
 - **PDF:**
   - Rendered with ReportLab on A4 landscape, uz and ru on one page, laid out like mockup 5.
   - Fonts are bundled and cover ʻ, ʼ and Cyrillic.
@@ -370,7 +372,7 @@ By construction, certificates of other modules are not touched. Recertification 
 > - the checklist items "no pending drafts on changed lessons" and "pool ≥ 3×N";
 > - steps 5 and 6 above.
 >
-> The impact preview and the recertification effects stay in Phase 4.
+> The impact preview and the recertification effects came in Phase 4.
 
 **R10 Assignments.**
 - A wave has a name (uz/ru), three dates, a list of branches and a role × module matrix.

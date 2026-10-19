@@ -208,3 +208,24 @@ def test_template_has_the_spec_columns(db, client, reference):
 def test_import_is_admin_only(db, client, reference):
     login(client, make_user(db, role=AccessRole.methodologist))
     assert _upload(client, _csv()).status_code == 403
+
+
+def test_moving_people_queues_an_operator_certificate_check(db, client, reference):
+    from app.models import Job
+    from app.models.enums import JobKind
+
+    _admin(db, client)
+    first = _csv(
+        "XB-100231;Dilnoza Rahimova;01-101;Toshkent shahri;Menejer;uz",
+        "XB-100232;Sardor Tursunov;01-101;Toshkent shahri;Menejer;uz",
+    )
+    client.post(f"{IMPORT}/{_upload(client, first).json()['import_id']}/commit")
+    assert db.scalar(select(Job).where(Job.kind == JobKind.operator_cert_eval)) is None
+    moved = _csv(
+        "XB-100231;Dilnoza Rahimova;11-101;11;Menejer;uz",  # new branch
+        "XB-100232;Sardor Tursunov;01-101;Toshkent shahri;Menejer;ru",  # language only
+    )
+    client.post(f"{IMPORT}/{_upload(client, moved).json()['import_id']}/commit")
+    job = db.scalar(select(Job).where(Job.kind == JobKind.operator_cert_eval))
+    dilnoza = db.scalar(select(AppUser).where(AppUser.employee_id == "XB-100231"))
+    assert job.payload == {"user_ids": [dilnoza.id]}

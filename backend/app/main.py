@@ -7,10 +7,14 @@ from app.api import (
     admin_questions,
     admin_releases,
     admin_users,
+    admin_waves,
     attempts,
     auth,
+    certificates,
+    integration,
     learner,
     reference,
+    reports,
     system,
 )
 from app.auth.csrf import CsrfHeaderMiddleware
@@ -37,11 +41,15 @@ def create_app() -> FastAPI:
         auth.router,
         learner.router,
         attempts.router,
+        certificates.router,
+        integration.router,
+        reports.router,
         admin_users.router,
         reference.router,
         admin_content.router,
         admin_releases.router,
         admin_questions.router,
+        admin_waves.router,
     )
     for router in routers:
         app.include_router(router, prefix=API_PREFIX)

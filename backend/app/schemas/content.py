@@ -181,9 +181,25 @@ class ReleaseModuleProblem(BaseModel):
     params: dict[str, Any]
 
 
+class ReleaseImpact(BaseModel):
+    module_id: int
+    code: str
+    title_uz: str
+    title_ru: str
+    changed_lessons: int
+    added_lessons: int
+    total_lessons: int  # once the release is live
+    certificates: int  # current certificates that will need renewal
+    learners: int
+    questions_pending: int  # draft questions on this release's lessons
+    pool_have: int | None  # None while the module's test is not published
+    pool_need: int | None
+
+
 class ReleaseDetail(ReleaseOut):
     lessons: list[ReleaseLessonOut]
     module_problems: list[ReleaseModuleProblem]
+    impact: list[ReleaseImpact]  # draft releases only
     ready: bool
 
 

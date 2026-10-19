@@ -39,7 +39,7 @@ from app.models.enums import (
     ModuleType,
     QuestionType,
 )
-from app.services import access, assembly, audit, grading, questions, remediation
+from app.services import access, assembly, audit, certificates, grading, questions, remediation
 
 GRACE_S = 30
 
@@ -364,7 +364,10 @@ def submit(db: Session, attempt: TestAttempt, now: datetime) -> TestAttempt:
 
 
 def finalize(db: Session, attempt: TestAttempt, now: datetime, *, expired: bool) -> TestAttempt:
-    """Grade with the saved answers, update item statistics, open remediation on a fail."""
+    """Grade with the saved answers and update item statistics.
+
+    A pass issues the module certificate; a fail opens remediation.
+    """
     attempt = db.scalar(
         select(TestAttempt)
         .where(TestAttempt.id == attempt.id)
@@ -410,7 +413,10 @@ def finalize(db: Session, attempt: TestAttempt, now: datetime, *, expired: bool)
     attempt.passed = grading.passed(len(right), attempt.question_count, attempt.pass_pct)
     attempt.status = AttemptStatus.expired if expired else AttemptStatus.submitted
     attempt.submitted_at = min(now, attempt.expires_at) if expired else now
-    if not attempt.passed:
+    db.flush()
+    if attempt.passed:
+        certificates.issue_module(db, attempt, now)
+    else:
         remediation.create_items(db, attempt, missed)
     db.flush()
     return attempt

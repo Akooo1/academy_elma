@@ -322,6 +322,51 @@ def _demo_question(q_type: QuestionType, rng: random.Random):
     )
 
 
+def seed_demo_learner(db: Session) -> str | None:
+    """One learner assigned exactly Core + Farovon (the demo content), in a wave of their own.
+
+    Returns their one-time password, or None if they already exist.
+    """
+    cfg = seed_data.DEMO_PATH
+    if db.scalar(select(AppUser.id).where(AppUser.employee_id == cfg["employee_id"])):
+        return None
+    region = db.scalar(select(Region).where(Region.code == cfg["region_code"]))
+    branch = db.scalar(select(Branch).where(Branch.code == cfg["branch_code"]))
+    if branch is None:
+        branch = Branch(
+            code=cfg["branch_code"], name_uz=cfg["branch_uz"], name_ru=cfg["branch_ru"],
+            region_id=region.id,
+        )  # fmt: skip
+        db.add(branch)
+    wave = db.scalar(select(Wave).where(Wave.name_uz == cfg["wave_uz"]))
+    if wave is None:
+        today = clock.today()
+        wave = Wave(
+            name_uz=cfg["wave_uz"], name_ru=cfg["wave_ru"],
+            training_start=today - timedelta(days=1), deadline=today + timedelta(days=30),
+            go_live=today + timedelta(days=45),
+        )  # fmt: skip
+        db.add(wave)
+    db.flush()
+    if db.scalar(select(WaveBranch).where(WaveBranch.branch_id == branch.id)) is None:
+        db.add(WaveBranch(wave_id=wave.id, branch_id=branch.id))
+    role = db.scalar(select(JobRole).where(JobRole.code == cfg["job_role"]))
+    for code in cfg["products"]:
+        module = db.scalar(select(Module).where(Module.code == code))
+        key = {"wave_id": wave.id, "module_id": module.id, "job_role_id": role.id}
+        if db.get(WaveModuleRole, key) is None:
+            db.add(WaveModuleRole(**key))
+    user = AppUser(
+        employee_id=cfg["employee_id"], full_name=cfg["full_name"], branch_id=branch.id,
+        job_role_id=role.id, access_role=access_role_for(role), password_hash="",
+    )  # fmt: skip
+    temp = issue_temp_password(user)
+    db.add(user)
+    db.flush()
+    audit.record(db, "user.created", target_user_id=user.id, data={"source": "cli-demo"})
+    return temp
+
+
 def _generate_demo_video(target, seconds: int) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(
@@ -450,6 +495,11 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"demo lessons: {result['lessons']} created and published")
                 if result["lessons"]:
                     print(f"demo questions: {result['questions']} approved; tests published")
+                temp = seed_demo_learner(db)
+                if temp is not None:
+                    employee_id = seed_data.DEMO_PATH["employee_id"]
+                    print(f"demo learner {employee_id} (Core + Farovon) created.")
+                    print(f"Temporary password (shown once, change at first login): {temp}")
         elif args.command == "create-admin":
             try:
                 temp = create_staff(db, args.employee_id, args.full_name, AccessRole(args.role))

@@ -68,3 +68,13 @@ def test_pdf_is_shown_only_in_both_languages(db, client, reference):
     db.flush()
     login(client, make_learner(db, reference))
     assert client.get(f"/api/v1/me/lessons/{lesson.id}").json()["pdf"] is None
+
+
+def test_faq_player_is_untracked_and_only_for_faq_lessons(db, client, reference):
+    faq_lesson, _ = make_live_lesson(db, reference.modules["FAQ"], title="Xatolar")
+    core_lesson, _ = make_live_lesson(db, reference.modules["CORE"])
+    make_wave(db, [reference.tashkent], {})
+    login(client, make_learner(db, reference))
+    player = client.get(f"/api/v1/me/faq/{faq_lesson.id}").json()
+    assert (player["tracking"], player["seek_limit_s"], player["progress"]) == (False, None, None)
+    assert client.get(f"/api/v1/me/faq/{core_lesson.id}").status_code == 404

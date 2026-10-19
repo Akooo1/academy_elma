@@ -216,7 +216,11 @@ def give_certificate(
         issued_at=now,
         recert_due_at=recert_due_at,
         superseded_at=now if superseded else None,
-        snapshot={},
+        snapshot={
+            "holder": {"full_name": user.full_name, "employee_id": user.employee_id},
+            "modules": [{"code": module.code, "title_uz": module.title_uz,
+                         "title_ru": module.title_ru, "release": None}],
+        },  # fmt: skip
     )
     db.add(cert)
     db.flush()
@@ -322,3 +326,55 @@ def make_version_ready(db: Session, client, version_id: int, duration: float = 6
         url = f"/api/v1/admin/lesson-versions/{version_id}/subtitles/{lang}"
         resp = client.put(url, content=VTT)
         assert resp.status_code == 200, resp.text
+
+
+def ready_module(
+    db: Session, module: Module, *, lessons: int = 1, n: int = 3, duration: float = 600.0
+) -> list[tuple[Lesson, LessonVersion]]:
+    """Live lessons and a published test of N; the 3 x N pool sits on the last lesson."""
+    made = [
+        make_live_lesson(db, module, duration=duration, title=f"{module.code} {i + 1}")
+        for i in range(lessons)
+    ]
+    module.test_question_count = n
+    make_pool(db, module, made[-1][1], per_difficulty=n)
+    module.test_published_at = clock.utcnow()
+    db.flush()
+    return made
+
+
+def pass_test(db: Session, client, module_id: int, correct: int | None = None) -> dict:
+    """Start an attempt, answer ``correct`` questions right (all by default), submit."""
+    started = client.post(f"/api/v1/me/modules/{module_id}/attempts")
+    assert started.status_code == 201, started.text
+    attempt_id = started.json()["attempt_id"]
+    key = answer_key(db, attempt_id)
+    for i, position in enumerate(sorted(key)):
+        answer = key[position] if correct is None or i < correct else (
+            wrong_answer(db, attempt_id, position)
+        )
+        client.put(f"/api/v1/me/attempts/{attempt_id}/answers/{position}", json={"answer": answer})
+    result = client.post(f"/api/v1/me/attempts/{attempt_id}/submit")
+    assert result.status_code == 200, result.text
+    return result.json()
+
+
+def publish_release(
+    db: Session, admin, lessons: list[Lesson], code: str, transition_days: int = 0
+) -> dict[int, int]:
+    """Release ``code`` replacing the videos of ``lessons``; returns lesson id → new version id."""
+    releases_url = "/api/v1/admin/releases"
+    release = admin.post(releases_url, json={"code": code})
+    assert release.status_code == 201, release.text
+    release_id = release.json()["id"]
+    admin.patch(f"{releases_url}/{release_id}", json={"transition_days": transition_days})
+    new = {}
+    for lesson in lessons:
+        marked = admin.post(f"{releases_url}/{release_id}/lessons/{lesson.id}")
+        assert marked.status_code == 201, marked.text
+        new[lesson.id] = marked.json()["draft"]["id"]
+        make_version_ready(db, admin, new[lesson.id])
+    published = admin.post(f"{releases_url}/{release_id}/publish")
+    assert published.status_code == 200, published.text
+    db.expire_all()
+    return new

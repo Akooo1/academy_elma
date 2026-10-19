@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app import clock
 from app.api.common import body_reader, csv_response
+from app.api.reports import learner_detail_out
 from app.auth import sessions
 from app.auth.deps import require_roles
 from app.db import get_db
@@ -176,7 +177,11 @@ def get_user(
         .order_by(AuditEvent.at.desc(), AuditEvent.id.desc())
         .limit(50)
     ).all()
-    return UserDetail(**UserRow.of(user).model_dump(), audit=[AuditOut.of(e) for e in events])
+    return UserDetail(
+        **UserRow.of(user).model_dump(),
+        audit=[AuditOut.of(e) for e in events],
+        learning=learner_detail_out(db, user),
+    )
 
 
 @router.patch("/{user_id}", response_model=UserRow)

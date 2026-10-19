@@ -14,7 +14,7 @@ from app.auth.sessions import purge_expired
 from app.db import SessionLocal
 from app.models.enums import JobLane
 from app.services.attempts import finalize_overdue
-from app.worker import transcode  # noqa: F401  (registers the job handler)
+from app.worker import operator_certs, transcode  # noqa: F401  (register job handlers)
 from app.worker.runner import claim_next, recover_interrupted, run_job
 
 POLL_SECONDS = 2.0
