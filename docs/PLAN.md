@@ -115,7 +115,7 @@ academy_elma/
 ├── docs/PLAN.md
 ├── backend/
 │   ├── Dockerfile            # python:3.12-slim + ffmpeg; used by api and worker
-│   ├── pyproject.toml        # pinned dependencies
+│   ├── requirements*.txt     # pinned dependencies (runtime / dev)
 │   ├── alembic.ini · alembic/versions/
 │   ├── app/
 │   │   ├── main.py           # app factory, routers, error handler (returns codes, never UI text)
@@ -562,7 +562,7 @@ Layouts target 1366×768 and up, with click targets of at least 44 px and the co
 | `argon2-cffi` | argon2id hashing (named in the spec) | — |
 | `reportlab` | certificate PDF; its built-in QR widget means no separate QR library | WeasyPrint needs Pango system libraries |
 | `anthropic` | official SDK for `AnthropicProvider`; imported only when the key is set | hand-written HTTP calls (more code to own) |
-| `pytest`, `httpx` | tests (FastAPI `TestClient` needs httpx); dev only | — |
+| `pytest`, `httpx2` | tests (FastAPI's `TestClient` uses httpx2, the successor of httpx); dev only | — |
 | `react-router-dom` | routing | hand-rolled router |
 | `i18next` | required peer of react-i18next | — |
 | `typescript`, `@vitejs/plugin-react`, `@types/react`, `@types/react-dom` | standard Vite React toolchain; dev only | — |

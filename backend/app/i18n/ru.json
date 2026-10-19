@@ -1,0 +1,25 @@
+{
+  "import": {
+    "employee_id_empty": "employee_id не заполнен",
+    "employee_id_invalid": "Некорректный employee_id: «{value}»",
+    "employee_id_duplicate": "employee_id повторяется (как в строке {first_row})",
+    "full_name_empty": "ФИО не заполнено",
+    "full_name_too_long": "ФИО слишком длинное",
+    "branch_code_empty": "Код филиала не заполнен",
+    "branch_not_found": "Код филиала не найден: {code}",
+    "region_empty": "Регион не заполнен",
+    "region_mismatch": "Регион не соответствует филиалу: «{value}» (регион филиала: {expected})",
+    "role_empty": "Роль не заполнена",
+    "role_unknown": "Неизвестная роль: «{value}»",
+    "language_invalid": "Некорректный язык: «{value}» (допустимо uz или ru)"
+  },
+  "csv": {
+    "row": "Строка",
+    "employee_id": "employee_id",
+    "problem": "Проблема",
+    "full_name": "ФИО",
+    "branch_code": "Код филиала",
+    "branch": "Филиал",
+    "temp_password": "Временный пароль"
+  }
+}

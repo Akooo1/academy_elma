@@ -1,0 +1,30 @@
+from __future__ import annotations
+
+from fastapi import FastAPI
+
+from app.api import admin_users, auth, reference, system
+from app.auth.csrf import CsrfHeaderMiddleware
+from app.config import settings
+from app.errors import register_error_handlers
+
+API_PREFIX = "/api/v1"
+
+
+def create_app() -> FastAPI:
+    app = FastAPI(
+        title="Yagona oyna Akademiyasi",
+        version="0.1.0",
+        # Swagger UI pulls its assets from a CDN, so it only exists in dev; production
+        # must not reference external resources.
+        docs_url="/api/docs" if settings.is_dev else None,
+        redoc_url=None,
+        openapi_url=f"{API_PREFIX}/openapi.json",
+    )
+    app.add_middleware(CsrfHeaderMiddleware)
+    register_error_handlers(app)
+    for router in (system.router, auth.router, admin_users.router, reference.router):
+        app.include_router(router, prefix=API_PREFIX)
+    return app
+
+
+app = create_app()

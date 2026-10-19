@@ -1,0 +1,25 @@
+{
+  "import": {
+    "employee_id_empty": "employee_id boʻsh",
+    "employee_id_invalid": "employee_id notoʻgʻri: «{value}»",
+    "employee_id_duplicate": "employee_id takrorlangan ({first_row}-qator bilan)",
+    "full_name_empty": "F.I.Sh. boʻsh",
+    "full_name_too_long": "F.I.Sh. juda uzun",
+    "branch_code_empty": "Filial kodi boʻsh",
+    "branch_not_found": "Filial kodi topilmadi: {code}",
+    "region_empty": "Hudud boʻsh",
+    "region_mismatch": "Hudud filialga mos emas: «{value}» (filial hududi: {expected})",
+    "role_empty": "Rol boʻsh",
+    "role_unknown": "Rol nomaʼlum: «{value}»",
+    "language_invalid": "Til notoʻgʻri: «{value}» (uz yoki ru boʻlishi kerak)"
+  },
+  "csv": {
+    "row": "Qator",
+    "employee_id": "employee_id",
+    "problem": "Muammo",
+    "full_name": "F.I.Sh.",
+    "branch_code": "Filial kodi",
+    "branch": "Filial",
+    "temp_password": "Vaqtinchalik parol"
+  }
+}

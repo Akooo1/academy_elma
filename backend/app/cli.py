@@ -1,0 +1,312 @@
+"""Operator commands: ``python -m app.cli <command>``.
+
+  seed                         reference data (course, regions, job roles, 7 modules)
+  seed --synthetic --password  + synthetic branches, ~245 users and a demo wave (demo only)
+  create-admin                 bootstrap an admin or methodologist (prints a temp password)
+  import-branches FILE         upsert branches from CSV: code, name_uz, name_ru, region_code
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import io
+import random
+import sys
+from dataclasses import dataclass
+from datetime import timedelta
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app import clock, seed_data
+from app.auth import passwords
+from app.models import (
+    AppUser,
+    Branch,
+    Course,
+    JobRole,
+    Module,
+    Region,
+    Wave,
+    WaveBranch,
+    WaveModuleRole,
+)
+from app.models.enums import AccessRole, Language, ModuleType
+from app.services import audit, csvio
+from app.services.users import (
+    EMPLOYEE_ID_RE,
+    access_role_for,
+    issue_temp_password,
+    normalize_employee_id,
+)
+
+
+@dataclass
+class SeedCounts:
+    created: int = 0
+    existing: int = 0
+
+
+def seed_reference(db: Session) -> dict[str, SeedCounts]:
+    """Idempotent: only inserts what is missing, never overwrites admin edits."""
+    counts = {name: SeedCounts() for name in ("course", "regions", "job_roles", "modules")}
+
+    course = db.scalar(select(Course).where(Course.code == seed_data.COURSE["code"]))
+    if course is None:
+        course = Course(**seed_data.COURSE)
+        db.add(course)
+        db.flush()
+        counts["course"].created += 1
+    else:
+        counts["course"].existing += 1
+
+    have = set(db.scalars(select(Region.code)))
+    for code, name_uz, name_ru in seed_data.REGIONS:
+        if code in have:
+            counts["regions"].existing += 1
+            continue
+        db.add(Region(code=code, name_uz=name_uz, name_ru=name_ru))
+        counts["regions"].created += 1
+
+    have = set(db.scalars(select(JobRole.code)))
+    for code, name_uz, name_ru, sort, is_head in seed_data.JOB_ROLES:
+        if code in have:
+            counts["job_roles"].existing += 1
+            continue
+        db.add(
+            JobRole(code=code, name_uz=name_uz, name_ru=name_ru, sort=sort, is_branch_head=is_head)
+        )
+        counts["job_roles"].created += 1
+
+    have = set(db.scalars(select(Module.code)))
+    for sort, (code, qprefix, mtype, title_uz, title_ru) in enumerate(seed_data.MODULES, start=1):
+        if code in have:
+            counts["modules"].existing += 1
+            continue
+        db.add(
+            Module(
+                course_id=course.id,
+                code=code,
+                qprefix=qprefix,
+                type=ModuleType(mtype),
+                title_uz=title_uz,
+                title_ru=title_ru,
+                sort=sort,
+            )
+        )
+        counts["modules"].created += 1
+    db.flush()
+    return counts
+
+
+def seed_synthetic(db: Session, password: str, rng_seed: int = 2026) -> dict[str, int]:
+    """Invented branches, people and one demo wave. Never run this on production data."""
+    regions = {r.code: r for r in db.scalars(select(Region))}
+    roles = {r.code: r for r in db.scalars(select(JobRole))}
+    modules = {m.code: m for m in db.scalars(select(Module))}
+    branches_by_code = {b.code: b for b in db.scalars(select(Branch))}
+
+    planned: list[tuple[Branch, list[str]]] = []
+    created_branches = 0
+
+    def ensure_branch(code: str, name_uz: str, name_ru: str, region_code: str) -> Branch:
+        nonlocal created_branches
+        branch = branches_by_code.get(code)
+        if branch is None:
+            branch = Branch(
+                code=code, name_uz=name_uz, name_ru=name_ru, region_id=regions[region_code].id
+            )
+            db.add(branch)
+            branches_by_code[code] = branch
+            created_branches += 1
+        return branch
+
+    tashkent: list[Branch] = []
+    for i, (uz, ru) in enumerate(seed_data.TASHKENT_DISTRICTS, start=101):
+        branch = ensure_branch(f"01-{i}", f"{uz} BXM", f"ЦБУ {ru}", "01")
+        tashkent.append(branch)
+        planned.append((branch, seed_data.TASHKENT_BRANCH_STAFF))
+    for region_code, uz, ru in seed_data.REGIONAL_CITIES:
+        branch = ensure_branch(f"{region_code}-101", f"{uz} BXM", f"ЦБУ {ru}", region_code)
+        planned.append((branch, seed_data.REGIONAL_BRANCH_STAFF))
+    db.flush()
+
+    rng = random.Random(rng_seed)
+    password_hash = passwords.hash_password(password)  # one hash for all demo accounts
+    existing_ids = set(db.scalars(select(AppUser.employee_id)))
+    created_users = 0
+    number = 100001
+    for branch, staff in planned:
+        for role_code in staff:
+            employee_id = f"XB-{number}"
+            number += 1
+            if employee_id in existing_ids:
+                continue
+            full_name, language = _synthetic_person(rng)
+            role = roles[role_code]
+            db.add(
+                AppUser(
+                    employee_id=employee_id,
+                    full_name=full_name,
+                    branch_id=branch.id,
+                    job_role_id=role.id,
+                    access_role=access_role_for(role),
+                    preferred_language=language,
+                    password_hash=password_hash,
+                    must_change_password=False,
+                )
+            )
+            created_users += 1
+
+    wave = db.scalar(select(Wave).where(Wave.name_uz == seed_data.DEMO_WAVE["name_uz"]))
+    created_waves = 0
+    if wave is None:
+        today = clock.utcnow().date()
+        cfg = seed_data.DEMO_WAVE
+        wave = Wave(
+            name_uz=cfg["name_uz"],
+            name_ru=cfg["name_ru"],
+            training_start=today + timedelta(days=cfg["training_start_offset_days"]),
+            deadline=today + timedelta(days=cfg["deadline_offset_days"]),
+            go_live=today + timedelta(days=cfg["go_live_offset_days"]),
+        )
+        db.add(wave)
+        db.flush()
+        created_waves = 1
+        in_a_wave = set(db.scalars(select(WaveBranch.branch_id)))
+        for branch in tashkent:
+            if branch.id not in in_a_wave:
+                db.add(WaveBranch(wave_id=wave.id, branch_id=branch.id))
+        for role_code, module_codes in seed_data.DEMO_ASSIGNMENTS.items():
+            for module_code in module_codes:
+                db.add(
+                    WaveModuleRole(
+                        wave_id=wave.id,
+                        module_id=modules[module_code].id,
+                        job_role_id=roles[role_code].id,
+                    )
+                )
+    db.flush()
+    return {"branches": created_branches, "users": created_users, "waves": created_waves}
+
+
+def _synthetic_person(rng: random.Random) -> tuple[str, Language]:
+    female = rng.random() < 0.5
+    if rng.random() < 0.15:
+        first = rng.choice(seed_data.RU_FEMALE_NAMES if female else seed_data.RU_MALE_NAMES)
+        return f"{first} {rng.choice(seed_data.RU_SURNAMES)}", Language.ru
+    first = rng.choice(seed_data.FEMALE_NAMES if female else seed_data.MALE_NAMES)
+    surname = rng.choice(seed_data.SURNAMES) + ("a" if female else "")
+    language = Language.ru if rng.random() < 0.15 else Language.uz
+    return f"{first} {surname}", language
+
+
+def create_staff(db: Session, employee_id: str, full_name: str, role: AccessRole) -> str:
+    """Create an admin/methodologist; returns the one-time password to hand over."""
+    if role not in (AccessRole.admin, AccessRole.methodologist):
+        raise ValueError("role must be admin or methodologist")
+    employee_id = normalize_employee_id(employee_id)
+    if not EMPLOYEE_ID_RE.match(employee_id):
+        raise ValueError(f"invalid employee_id: {employee_id!r}")
+    if db.scalar(select(AppUser).where(AppUser.employee_id == employee_id)) is not None:
+        raise ValueError(f"user {employee_id} already exists")
+    user = AppUser(
+        employee_id=employee_id,
+        full_name=full_name.strip(),
+        access_role=role,
+        password_hash="",
+    )
+    temp = issue_temp_password(user)
+    db.add(user)
+    db.flush()
+    audit.record(db, "user.created", target_user_id=user.id, data={"source": "cli", "role": role})
+    return temp
+
+
+def import_branches(db: Session, data: bytes) -> tuple[int, int, list[str]]:
+    """Upsert branches by code. Returns (created, updated, problems)."""
+    text = csvio.decode(data)
+    header_line = next((line for line in text.splitlines() if line.strip()), "")
+    required = ("code", "name_uz", "name_ru", "region_code")
+    reader = csv.DictReader(
+        io.StringIO(text), delimiter=csvio.detect_delimiter(header_line, required)
+    )
+    reader.fieldnames = [csvio.normalize_header(n) for n in reader.fieldnames or []]
+    missing = [c for c in required if c not in reader.fieldnames]
+    if missing:
+        return 0, 0, [f"missing columns: {', '.join(missing)}"]
+    regions = {r.code: r for r in db.scalars(select(Region))}
+    branches = {b.code: b for b in db.scalars(select(Branch))}
+    created = updated = 0
+    problems: list[str] = []
+    for row in reader:
+        code = (row.get("code") or "").strip().upper()
+        if not code:
+            continue
+        region = regions.get((row.get("region_code") or "").strip())
+        name_uz, name_ru = (row.get("name_uz") or "").strip(), (row.get("name_ru") or "").strip()
+        if region is None or not name_uz or not name_ru:
+            problems.append(f"line {reader.line_num}: {code}: unknown region or empty name")
+            continue
+        branch = branches.get(code)
+        if branch is None:
+            branch = Branch(code=code, name_uz=name_uz, name_ru=name_ru, region_id=region.id)
+            branches[code] = branch
+            db.add(branch)
+            created += 1
+        elif (branch.name_uz, branch.name_ru, branch.region_id) != (name_uz, name_ru, region.id):
+            branch.name_uz, branch.name_ru, branch.region_id = name_uz, name_ru, region.id
+            updated += 1
+    db.flush()
+    return created, updated, problems
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="python -m app.cli")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p_seed = sub.add_parser("seed", help="reference data; --synthetic adds demo people")
+    p_seed.add_argument("--synthetic", action="store_true")
+    p_seed.add_argument("--password", help="password for all synthetic users (required)")
+
+    p_admin = sub.add_parser("create-admin", help="bootstrap an admin or methodologist")
+    p_admin.add_argument("--employee-id", required=True)
+    p_admin.add_argument("--full-name", required=True)
+    p_admin.add_argument("--role", choices=["admin", "methodologist"], default="admin")
+
+    p_branches = sub.add_parser("import-branches", help="upsert branches from CSV")
+    p_branches.add_argument("path")
+
+    args = parser.parse_args(argv)
+    from app.db import SessionLocal  # only connect when a command actually runs
+
+    with SessionLocal() as db:
+        if args.command == "seed":
+            if args.synthetic and not args.password:
+                parser.error("--synthetic needs --password")
+            for name, c in seed_reference(db).items():
+                print(f"{name}: {c.created} created, {c.existing} already present")
+            if args.synthetic:
+                for name, n in seed_synthetic(db, args.password).items():
+                    print(f"synthetic {name}: {n} created")
+        elif args.command == "create-admin":
+            try:
+                temp = create_staff(db, args.employee_id, args.full_name, AccessRole(args.role))
+            except ValueError as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                return 1
+            print(f"{args.role} {normalize_employee_id(args.employee_id)} created.")
+            print(f"Temporary password (shown once, must be changed at first login): {temp}")
+        elif args.command == "import-branches":
+            with open(args.path, "rb") as fh:
+                created, updated, problems = import_branches(db, fh.read())
+            print(f"branches: {created} created, {updated} updated, {len(problems)} problems")
+            for problem in problems:
+                print(f"  {problem}", file=sys.stderr)
+        db.commit()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
