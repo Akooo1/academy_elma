@@ -15,12 +15,21 @@ The design, schema, endpoints and phases are in [docs/PLAN.md](docs/PLAN.md).
 
 ## Run (machine with internet)
 
+Copy the settings file, then set `POSTGRES_PASSWORD` and `PUBLIC_BASE_URL` in `.env`:
+
 ```sh
-cp .env.example .env        # set POSTGRES_PASSWORD and PUBLIC_BASE_URL
-make up                     # builds images; starts postgres, api, worker, nginx
-make seed                   # course, regions, job roles, the 7 modules
-make admin ID=ADM-0001 NAME="Full Name"   # prints a one-time password
+cp .env.example .env
 ```
+
+Build and start postgres, api, worker and nginx; load the course, regions, job roles and the 7 modules; create the first admin (it prints a one-time password):
+
+```sh
+make up
+make seed
+make admin ID=ADM-0001 NAME="Full Name"
+```
+
+Command blocks in this file carry no inline `#` comments, because macOS's default shell (zsh) does not treat `#` as a comment when commands are pasted. Quote passwords containing `!` with single quotes in zsh.
 
 Everyone opens `http://<server>/` and signs in with their employee ID. A first login with the one-time password has to change it before anything else works. Learners and branch heads land on the learning home page; admins and methodologists land in the panel at `/admin`.
 
@@ -124,10 +133,15 @@ Set `CERT_SIGNATORY_NAME` to print the signatory's name on certificates.
 
 `docker compose up` cannot build images without internet (pip and npm need the network), so the bank server gets pre-built images:
 
+On a machine with internet, build the bundle (`dist/academy-1.0.tar`):
+
 ```sh
-# on a machine with internet
-make bundle VERSION=1.0               # → dist/academy-1.0.tar
-# copy the tar, docker-compose.yml and .env to the server, then:
+make bundle VERSION=1.0
+```
+
+Copy the tar, `docker-compose.yml` and `.env` to the server, then:
+
+```sh
 docker load -i academy-1.0.tar
 APP_VERSION=1.0 docker compose up -d
 ```
@@ -149,8 +163,10 @@ The platform makes no outbound calls at runtime:
 
 ## Tests
 
+pytest runs inside the api image, against a throwaway `academy_test` database:
+
 ```sh
-make test     # pytest inside the api image, against a throwaway academy_test database
+make test
 ```
 
 Without Docker, run from `backend/` with `TEST_DATABASE_URL=postgresql+psycopg://USER@HOST:5432/academy_test pytest`. The suite refuses to run on a database whose name doesn't end in `_test`.
